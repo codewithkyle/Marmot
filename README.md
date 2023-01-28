@@ -1,6 +1,6 @@
 # Marmot
 
-A high-performance PDF creation library that generates files so fast [you'll (fre)eek](https://youtu.be/syNumVb2kUs?t=8).
+A high-performance PDF creation library that generates files so fast [you'll (fr)eek](https://youtu.be/syNumVb2kUs?t=8).
 
 ## Roadmap
 
