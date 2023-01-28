@@ -39,4 +39,6 @@ A high-performance PDF creation library that generates files so fast [you'll (fr
 - [PDF 2.0 Spec](https://www.iso.org/standard/75839.html)
 - [PDF 1.7 Spec (free)](https://web.archive.org/web/20220226063926/https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf)
 - [iText 7 (.NET)](https://github.com/itext/itext7-dotnet)
-- [iText 7 Java)](https://github.com/itext/itext7)
+- [iText 7 (Java)](https://github.com/itext/itext7)
+- [PDFKit (NodeJS)](https://pdfkit.org/)
+- [JagPDF (C++)](https://github.com/jgresula/jagpdf)
