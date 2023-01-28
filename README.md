@@ -1,6 +1,6 @@
-# Sailfish
+# Marmot
 
-A high-performance PDF creation library focused on maximizing file creation throughput.
+A high-performance PDF creation library that generates files so fast [you'll eek](https://youtu.be/syNumVb2kUs?t=8).
 
 ## Roadmap
 
