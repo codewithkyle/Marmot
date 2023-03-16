@@ -1,6 +1,10 @@
-# Marmot
+<p align="center">
+  <img alt="Marmot - A freaky fast PDF rendering library." src="https://user-images.githubusercontent.com/15202776/225740644-233535ec-8f19-4ae0-a0f4-ccbb85d5426c.png">
+</p>
 
-Generate PDF files so fast [you'll (fr)eek](https://youtu.be/syNumVb2kUs?t=8).
+<p align="center">
+Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
+</p>
 
 ## Roadmap
 
