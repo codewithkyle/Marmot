@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Marmot - A freaky fast PDF rendering library." src="https://user-images.githubusercontent.com/15202776/225740644-233535ec-8f19-4ae0-a0f4-ccbb85d5426c.png">
+  <img alt="Marmot - A freaky fast PDF rendering library." src="https://user-images.githubusercontent.com/15202776/225741238-31eaf8f8-c7a3-4135-a385-71fcb2f6f967.png">
 </p>
 
 <p align="center">
