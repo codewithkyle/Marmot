@@ -1,5 +1,3 @@
-> **Note**: .
-
 <p align="center">
   <img alt="Marmot - A freaky fast PDF rendering library." src="https://repository-images.githubusercontent.com/594523081/002e1f52-d89e-48ac-a389-3ac4219c1cac">
 </p>
