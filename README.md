@@ -3,7 +3,8 @@
 </p>
 
 <p align="center">
-Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>. This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
+Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
+<br>This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
 </p>
 
 ## Installation
