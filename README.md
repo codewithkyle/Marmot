@@ -1,12 +1,20 @@
+> **Note**: .
+
 <p align="center">
-  <img alt="Marmot - A freaky fast PDF rendering library." src="https://user-images.githubusercontent.com/15202776/225741238-31eaf8f8-c7a3-4135-a385-71fcb2f6f967.png">
+  <img alt="Marmot - A freaky fast PDF rendering library." src="https://repository-images.githubusercontent.com/594523081/002e1f52-d89e-48ac-a389-3ac4219c1cac">
 </p>
 
 <p align="center">
-Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
+Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>. This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
 </p>
 
-> **Note**: this project is still under development. [Track the progress here](https://github.com/users/codewithkyle/projects/3).
+## Installation
+
+TBD
+
+## Usage
+
+TBD
 
 ## References
 
