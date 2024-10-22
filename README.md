@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Marmot - A freaky fast PostScript fabrication library." src="https://repository-images.githubusercontent.com/594523081/002e1f52-d89e-48ac-a389-3ac4219c1cac">
+  <img alt="Marmot - A freaky fast PostScript fabrication library." src="https://github.com/user-attachments/assets/d348c592-3bb4-4fd0-b8e4-3b2c6718ffeb">
 </p>
 
 <p align="center">
