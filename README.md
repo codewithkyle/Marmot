@@ -1,9 +1,9 @@
 <p align="center">
-  <img alt="Marmot - A freaky fast PDF rendering library." src="https://repository-images.githubusercontent.com/594523081/002e1f52-d89e-48ac-a389-3ac4219c1cac">
+  <img alt="Marmot - A freaky fast PostScript fabrication library." src="https://repository-images.githubusercontent.com/594523081/002e1f52-d89e-48ac-a389-3ac4219c1cac">
 </p>
 
 <p align="center">
-Generate PostScript files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
+Fabricate PostScript files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
 <br>This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
 </p>
 
