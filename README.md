@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-Generate PDF files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
+Generate PostScript files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
 <br>This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
 </p>
 
@@ -17,14 +17,4 @@ TBD
 
 ## References
 
-### Specification
-
-- [PDF 2.0 Spec](https://www.iso.org/standard/75839.html)
-- [PDF 1.7 Spec (free)](https://web.archive.org/web/20220226063926/https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf)
-
-### Other Implementations
-
-- [iText 7 (.NET)](https://github.com/itext/itext7-dotnet)
-- [iText 7 (Java)](https://github.com/itext/itext7)
-- [PDFKit (NodeJS)](https://pdfkit.org/)
-- [JagPDF (C++)](https://github.com/jgresula/jagpdf)
+- [PostScript Language Reference - 3rd Edition](https://drive.google.com/file/d/1MKZm12NrNdp2CyIV_yLKQnurBlvXn1Ji/view?usp=sharing)
