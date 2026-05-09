@@ -3,9 +3,14 @@
 </p>
 
 <p align="center">
-Fabricate PostScript files so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
-<br>This project is still under development but you can <a href="https://github.com/users/codewithkyle/projects/3">track the progress here</a>.
+Rendering dynamic PDFs so fast <a href="https://youtu.be/syNumVb2kUs?t=8" target="_blank">you'll (fr)eek</a>.
 </p>
+
+## Introduction
+
+Marmot is a PostScript-inspired template renderer for generating small dynamic PDFs and images from structured data.
+
+The initial goal is to render label-sized PDFs from Marmot templates and JSON/JSONL data, with a focus on deterministic batch rendering.
 
 ## Installation
 
