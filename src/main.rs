@@ -10,6 +10,7 @@ struct CheckArgs {
 struct RenderArgs {
     template_file: PathBuf,
     data_file: Option<PathBuf>,
+    output_file: PathBuf,
 }
 
 struct BatchArgs {
@@ -34,7 +35,8 @@ fn main() -> Result<()> {
             Command::new("render")
                 .about("Render a template with a data file")
                 .arg(Arg::new("template").required(true))
-                .arg(Arg::new("data")),
+                .arg(Arg::new("data"))
+                .arg(Arg::new("output").short('o').long("output").required(true)),
         )
         .get_matches();
 
@@ -77,14 +79,23 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .expect("template is required")
         .into();
     let data_file = matches.get_one::<String>("data").map(PathBuf::from);
+    let output_file = matches
+        .get_one::<String>("output")
+        .expect("output is required")
+        .into();
+
     let args = RenderArgs {
         template_file,
         data_file,
+        output_file,
     };
+
     ensure_file_exists(&args.template_file)?;
     if let Some(data_file) = &args.data_file {
         ensure_file_exists(data_file)?;
     }
+    ensure_parent_exists(&args.output_file)?;
+
     Ok(args)
 }
 
@@ -94,6 +105,28 @@ fn ensure_file_exists(path: &Path) -> Result<()> {
     }
     if !path.is_file() {
         bail!("path is not a file: {}", path.display());
+    }
+    Ok(())
+}
+
+fn ensure_dir_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        bail!("path does not exist: {}", path.display());
+    }
+    if !path.is_dir() {
+        bail!("path is not a directory: {}", path.display());
+    }
+    Ok(())
+}
+
+fn ensure_parent_exists(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            bail!("output directory does not exist: {}", parent.display());
+        }
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            bail!("output parent is not a directory: {}", parent.display());
+        }
     }
     Ok(())
 }
