@@ -20,9 +20,9 @@ The initial goal is to render label-sized PDFs from Marmot templates and JSON/JS
 page 612 792
 
 slots begin
-  product_name text required
-  base_price text required
-  sale_price text required
+  product_name string required
+  base_price string required
+  sale_price string required
   buy int required
   get int required
 end
