@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
-use anyhow::Result;
-
 use crate::lexer::{Token, TokenKind};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template {
@@ -246,10 +243,10 @@ impl Parser {
         match &self.peek().kind {
             TokenKind::Word(value) if value == expected => {
                 self.advance();
-                return true;
+                true
             }
             _ => {
-                return false;
+                false
             }
         }
     }
@@ -365,8 +362,8 @@ impl Parser {
         Ok(())
     }
 
-    fn build_slot_lookup(slots: &Vec<SlotDecl>) -> HashMap<String, SlotType> {
-         slots
+    fn build_slot_lookup(slots: &[SlotDecl]) -> HashMap<String, SlotType> {
+        slots
             .iter()
             .map(|slot| (slot.name.clone(), slot.ty.clone()))
             .collect()
@@ -467,7 +464,7 @@ impl Parser {
                         width,
                         height,
                     });
-                    current_path_kind = Some(CurrentPathKind::Line);
+                    current_path_kind = Some(CurrentPathKind::Rect);
                 }
                 TokenKind::Word(word) if word == "stroke" => {
                     if current_path_kind.is_none() {
@@ -839,7 +836,9 @@ end
                     g: NumberValue::Literal(0.0),
                     b: NumberValue::Literal(0.0),
                 },
-                DrawOp::SetStrokeWidth { width: NumberValue::Literal(2.0) },
+                DrawOp::SetStrokeWidth {
+                    width: NumberValue::Literal(2.0)
+                },
                 DrawOp::LinePath {
                     x1: NumberValue::Literal(0.0),
                     y1: NumberValue::Literal(0.0),
@@ -987,6 +986,128 @@ end
                 line: 5,
                 column: 17,
             }
+        );
+    }
+
+    #[test]
+    fn parses_numeric_slot_in_rect() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+slots begin
+  x decimal
+end
+
+draw begin
+  $(x) 0 10 10 rect stroke
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![
+                DrawOp::RectPath {
+                    x: NumberValue::Slot("x".to_string()),
+                    y: NumberValue::Literal(0.0),
+                    width: NumberValue::Literal(10.0),
+                    height: NumberValue::Literal(10.0),
+                },
+                DrawOp::Stroke,
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_rect_fill() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0 0 10 10 rect fill
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![
+                DrawOp::RectPath {
+                    x: NumberValue::Literal(0.0),
+                    y: NumberValue::Literal(0.0),
+                    width: NumberValue::Literal(10.0),
+                    height: NumberValue::Literal(10.0),
+                },
+                DrawOp::Fill,
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_on_unknown_slot_in_draw() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  $(missing) 0 0 100 100 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::UnknownSlot {
+                name: "missing".to_string(),
+                line: 5,
+                column: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_string_slot_in_textbox() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+slots begin
+  product_name string
+end
+
+draw begin
+  $(product_name) 0 0 100 100 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![DrawOp::TextBox {
+                text: TextValue::Slot("product_name".to_string()),
+                x: NumberValue::Literal(0.0),
+                y: NumberValue::Literal(0.0),
+                width: NumberValue::Literal(100.0),
+                height: NumberValue::Literal(100.0),
+            }]
         );
     }
 }
