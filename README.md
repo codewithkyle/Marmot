@@ -59,7 +59,7 @@ draw begin
   % Offer
   helvetica font
   64 fontsize
-  (BUY $(buy) GET $(get)) 72 240 468 100 textbox
+  (BUY ) $(buy) ( GET ) $(get) 4 concat 72 240 468 100 textbox % output: "BUY 2 GET 1"
 
   % Price
   helvetica_bold font
