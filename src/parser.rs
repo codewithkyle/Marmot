@@ -97,9 +97,11 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
-    InvalidRgbComponent {
-        component: String,
+    InvalidNumberOperand {
+        operator: String,
+        operand: String,
         value: f64,
+        expected: String,
         line: usize,
         column: usize,
     },
@@ -373,22 +375,47 @@ impl Parser {
             .collect()
     }
 
-    fn validate_rgb_component(
+    fn validate_literal_range(
         value: &NumberValue,
-        component: &str,
+        operator: &str,
+        operand: &str,
+        min: f64,
+        max: f64,
         token: &Token,
     ) -> Result<(), ParseError> {
         match value {
-            NumberValue::Literal(n) if !(0.0..=1.0).contains(n) => {
-                Err(ParseError::InvalidRgbComponent {
-                    component: component.to_string(),
+            NumberValue::Literal(n) if !n.is_finite() || *n < min || *n > max => {
+                Err(ParseError::InvalidNumberOperand {
+                    operator: operator.to_string(),
+                    operand: operand.to_string(),
                     value: *n,
+                    expected: format!("{min}..={max}"),
                     line: token.line,
                     column: token.column,
                 })
             }
-            NumberValue::Literal(_) => Ok(()),
-            NumberValue::Slot(_) => Ok(()),
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_literal_positive(
+        value: &NumberValue,
+        operator: &str,
+        operand: &str,
+        token: &Token,
+    ) -> Result<(), ParseError> {
+        match value {
+            NumberValue::Literal(n) if !n.is_finite() || *n < 0.0 => {
+                Err(ParseError::InvalidNumberOperand {
+                    operator: operator.to_string(),
+                    operand: operand.to_string(),
+                    value: *n,
+                    expected: format!("> 0"),
+                    line: token.line,
+                    column: token.column,
+                })
+            }
+            _ => Ok(()),
         }
     }
 
@@ -442,6 +469,9 @@ impl Parser {
                     let x = Self::pop_number(&mut stack, "textbox", token)?;
                     let text = Self::pop_string(&mut stack, "textbox", token)?;
 
+                    Self::validate_literal_positive(&width, "textbox", "width", token)?;
+                    Self::validate_literal_positive(&height, "textbox", "height", token)?;
+
                     ops.push(DrawOp::TextBox {
                         text,
                         x,
@@ -456,15 +486,17 @@ impl Parser {
                     let g = Self::pop_number(&mut stack, "rgb", token)?;
                     let r = Self::pop_number(&mut stack, "rgb", token)?;
 
-                    Self::validate_rgb_component(&r, "r", token)?;
-                    Self::validate_rgb_component(&g, "g", token)?;
-                    Self::validate_rgb_component(&b, "b", token)?;
+                    Self::validate_literal_range(&r, "rgb", "r", 0.0, 1.0, token)?;
+                    Self::validate_literal_range(&g, "rgb", "g", 0.0, 1.0, token)?;
+                    Self::validate_literal_range(&b, "rgb", "b", 0.0, 1.0, token)?;
 
                     ops.push(DrawOp::SetRgb { r, g, b });
                 }
                 TokenKind::Word(word) if word == "strokewidth" => {
                     Self::require_stack(&stack, "strokewidth", 1, token)?;
                     let width = Self::pop_number(&mut stack, "strokewidth", token)?;
+
+                    Self::validate_literal_positive(&width, "strokewidth", "width", token)?;
 
                     ops.push(DrawOp::SetStrokeWidth { width });
                 }
@@ -475,6 +507,11 @@ impl Parser {
                     let y1 = Self::pop_number(&mut stack, "line", token)?;
                     let x1 = Self::pop_number(&mut stack, "line", token)?;
 
+                    Self::validate_literal_positive(&x1, "line", "x1", token)?;
+                    Self::validate_literal_positive(&y1, "line", "y1", token)?;
+                    Self::validate_literal_positive(&x2, "line", "x2", token)?;
+                    Self::validate_literal_positive(&y2, "line", "y2", token)?;
+
                     ops.push(DrawOp::LinePath { x1, y1, x2, y2 });
                     current_path_kind = Some(CurrentPathKind::Line);
                 }
@@ -484,6 +521,9 @@ impl Parser {
                     let width = Self::pop_number(&mut stack, "rect", token)?;
                     let y = Self::pop_number(&mut stack, "rect", token)?;
                     let x = Self::pop_number(&mut stack, "rect", token)?;
+
+                    Self::validate_literal_positive(&width, "rect", "width", token)?;
+                    Self::validate_literal_positive(&height, "rect", "height", token)?;
 
                     ops.push(DrawOp::RectPath {
                         x,
@@ -1156,9 +1196,11 @@ end
 
         assert_eq!(
             err,
-            ParseError::InvalidRgbComponent {
-                component: "r".to_string(),
+            ParseError::InvalidNumberOperand {
+                operator: "rgb".to_string(),
+                operand: "r".to_string(),
                 value: 2.0,
+                expected: "0..=1".to_string(),
                 line: 5,
                 column: 9,
             }
