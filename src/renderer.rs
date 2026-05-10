@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::parser::{DrawOp, NumberValue, Page, SlotDecl, SlotType};
+use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
 use serde_json::Value;
 
@@ -32,6 +32,13 @@ pub enum RenderOp {
         width: f64,
         height: f64,
     },
+    TextBox {
+        text: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -39,12 +46,13 @@ pub enum RenderError {
     MissingSlot { slot: String },
     MissingData { slot: String },
     InvalidNumberSlot { slot: String },
-    Cario(cairo::Error),
+    InvalidTextSlot { slot: String },
+    Cairo(cairo::Error),
 }
 
 impl From<cairo::Error> for RenderError {
     fn from(err: cairo::Error) -> Self {
-        RenderError::Cario(err)
+        RenderError::Cairo(err)
     }
 }
 
@@ -62,6 +70,22 @@ enum PendingPath {
         width: f64,
         height: f64,
     },
+}
+
+fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderError> {
+    match value {
+        TextValue::Literal(text) => Ok(text.clone()),
+        TextValue::Slot(name) => {
+            let data = data.ok_or_else(|| RenderError::MissingData { slot: name.clone() })?;
+            let value = data
+                .get(name)
+                .ok_or_else(|| RenderError::MissingSlot { slot: name.clone() })?;
+            value
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| RenderError::InvalidTextSlot { slot: name.clone() })
+        }
+    }
 }
 
 fn eval_number(value: &NumberValue, data: Option<&Value>) -> Result<f64, RenderError> {
@@ -169,8 +193,20 @@ pub fn lower_draw_ops(
                     }
                 }
             }
-            DrawOp::TextBox { .. } => {
-                todo!("textbox rendering will be added later");
+            DrawOp::TextBox {
+                text,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                render_ops.push(RenderOp::TextBox {
+                    text: eval_text(text, data)?,
+                    x: eval_number(x, data)?,
+                    y: eval_number(y, data)?,
+                    width: eval_number(width, data)?,
+                    height: eval_number(height, data)?,
+                });
             }
         }
     }
@@ -536,6 +572,80 @@ mod tests {
         assert!(matches!(
             err,
             RenderError::InvalidNumberSlot { slot } if slot == "x"
+        ));
+    }
+
+    #[test]
+    fn lowers_static_textbox() {
+        let draw_ops = vec![DrawOp::TextBox {
+            text: TextValue::Literal("Hello Marmot".to_string()),
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(40.0),
+            width: NumberValue::Literal(160.0),
+            height: NumberValue::Literal(40.0),
+        }];
+
+        let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
+
+        assert_eq!(
+            render_ops,
+            vec![RenderOp::TextBox {
+                text: "Hello Marmot".to_string(),
+                x: 20.0,
+                y: 40.0,
+                width: 160.0,
+                height: 40.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn lowers_dynamic_textbox_from_json_data() {
+        let data = serde_json::json!({
+            "product_name": "Coffee Beans"
+        });
+
+        let draw_ops = vec![DrawOp::TextBox {
+            text: TextValue::Slot("product_name".to_string()),
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(40.0),
+            width: NumberValue::Literal(160.0),
+            height: NumberValue::Literal(40.0),
+        }];
+
+        let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
+
+        assert_eq!(
+            render_ops,
+            vec![RenderOp::TextBox {
+                text: "Coffee Beans".to_string(),
+                x: 20.0,
+                y: 40.0,
+                width: 160.0,
+                height: 40.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn errors_when_text_slot_is_not_a_string() {
+        let data = serde_json::json!({
+            "product_name": 123
+        });
+
+        let draw_ops = vec![DrawOp::TextBox {
+            text: TextValue::Slot("product_name".to_string()),
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(40.0),
+            width: NumberValue::Literal(160.0),
+            height: NumberValue::Literal(40.0),
+        }];
+
+        let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+
+        assert!(matches!(
+            err,
+            RenderError::InvalidTextSlot { slot } if slot == "product_name"
         ));
     }
 }
