@@ -1,6 +1,7 @@
 mod lexer;
 mod parser;
 mod validator;
+mod renderer;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgMatches, Command};
