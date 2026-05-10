@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
-use crate::parser::{DrawOp, NumberValue, Page};
+use crate::parser::{DrawOp, NumberValue, Page, SlotDecl, SlotType};
 use cairo::{Context, PdfSurface};
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -33,21 +34,17 @@ pub enum RenderOp {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RenderError {
+    MissingSlot { slot: String },
+    MissingData { slot: String },
+    InvalidNumberSlot { slot: String },
     Cario(cairo::Error),
-    Io(std::io::Error),
 }
 
 impl From<cairo::Error> for RenderError {
     fn from(err: cairo::Error) -> Self {
         RenderError::Cario(err)
-    }
-}
-
-impl From<std::io::Error> for RenderError {
-    fn from(err: std::io::Error) -> Self {
-        RenderError::Io(err)
     }
 }
 
@@ -67,16 +64,27 @@ enum PendingPath {
     },
 }
 
-fn eval_number(value: &NumberValue) -> f64 {
+fn eval_number(value: &NumberValue, data: Option<&Value>) -> Result<f64, RenderError> {
     match value {
-        NumberValue::Literal(n) => *n,
+        NumberValue::Literal(n) => Ok(*n),
         NumberValue::Slot(name) => {
-            panic!("not supported {name:?}")
+            let data = data.ok_or_else(|| RenderError::MissingData { slot: name.clone() })?;
+
+            let value = data
+                .get(name)
+                .ok_or_else(|| RenderError::MissingSlot { slot: name.clone() })?;
+
+            value
+                .as_f64()
+                .ok_or_else(|| RenderError::InvalidNumberSlot { slot: name.clone() })
         }
     }
 }
 
-pub fn lower_draw_ops(draw_ops: &[DrawOp]) -> Vec<RenderOp> {
+pub fn lower_draw_ops(
+    draw_ops: &[DrawOp],
+    data: Option<&Value>,
+) -> Result<Vec<RenderOp>, RenderError> {
     let mut render_ops = Vec::new();
     let mut pending_path: Option<PendingPath> = None;
 
@@ -84,22 +92,22 @@ pub fn lower_draw_ops(draw_ops: &[DrawOp]) -> Vec<RenderOp> {
         match draw_op {
             DrawOp::SetRgb { r, g, b } => {
                 render_ops.push(RenderOp::SetRgb {
-                    r: eval_number(r),
-                    g: eval_number(g),
-                    b: eval_number(b),
+                    r: eval_number(r, data)?,
+                    g: eval_number(g, data)?,
+                    b: eval_number(b, data)?,
                 });
             }
             DrawOp::SetStrokeWidth { width } => {
                 render_ops.push(RenderOp::SetStrokeWidth {
-                    width: eval_number(width),
+                    width: eval_number(width, data)?,
                 });
             }
             DrawOp::LinePath { x1, y1, x2, y2 } => {
                 pending_path = Some(PendingPath::Line {
-                    x1: eval_number(x1),
-                    y1: eval_number(y1),
-                    x2: eval_number(x2),
-                    y2: eval_number(y2),
+                    x1: eval_number(x1, data)?,
+                    y1: eval_number(y1, data)?,
+                    x2: eval_number(x2, data)?,
+                    y2: eval_number(y2, data)?,
                 });
             }
             DrawOp::RectPath {
@@ -109,10 +117,10 @@ pub fn lower_draw_ops(draw_ops: &[DrawOp]) -> Vec<RenderOp> {
                 height,
             } => {
                 pending_path = Some(PendingPath::Rect {
-                    x: eval_number(x),
-                    y: eval_number(y),
-                    width: eval_number(width),
-                    height: eval_number(height),
+                    x: eval_number(x, data)?,
+                    y: eval_number(y, data)?,
+                    width: eval_number(width, data)?,
+                    height: eval_number(height, data)?,
                 });
             }
             DrawOp::Stroke => {
@@ -167,7 +175,7 @@ pub fn lower_draw_ops(draw_ops: &[DrawOp]) -> Vec<RenderOp> {
         }
     }
 
-    render_ops
+    Ok(render_ops)
 }
 
 fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), RenderError> {
@@ -209,8 +217,13 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
     Ok(())
 }
 
-pub fn render_pdf(page: &Page, draw_ops: &[DrawOp], output_path: &Path) -> Result<(), RenderError> {
-    let render_ops = lower_draw_ops(draw_ops);
+pub fn render_pdf(
+    page: &Page,
+    draw_ops: &[DrawOp],
+    output_path: &Path,
+    data: Option<&Value>,
+) -> Result<(), RenderError> {
+    let render_ops = lower_draw_ops(draw_ops, data)?;
 
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
@@ -239,7 +252,8 @@ mod tests {
             DrawOp::Fill,
         ];
 
-        let render_ops = lower_draw_ops(&draw_ops);
+        let data: Option<&Value> = None;
+        let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
 
         assert_eq!(
             render_ops,
@@ -264,7 +278,8 @@ mod tests {
             DrawOp::Stroke,
         ];
 
-        let render_ops = lower_draw_ops(&draw_ops);
+        let data: Option<&Value> = None;
+        let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
 
         assert_eq!(
             render_ops,
@@ -289,7 +304,8 @@ mod tests {
             DrawOp::Stroke,
         ];
 
-        let render_ops = lower_draw_ops(&draw_ops);
+        let data: Option<&Value> = None;
+        let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
 
         assert_eq!(
             render_ops,
@@ -363,11 +379,163 @@ mod tests {
 
         let output_path = std::env::temp_dir().join("marmot_basic_render_test.pdf");
 
-        render_pdf(&page, &draw_ops, &output_path).unwrap();
+        let data: Option<&Value> = None;
+        render_pdf(&page, &draw_ops, &output_path, data).unwrap();
 
         let metadata = fs::metadata(&output_path).unwrap();
         assert!(metadata.len() > 0);
 
         let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn lowers_literal_rect_without_data() {
+        let draw_ops = vec![
+            DrawOp::RectPath {
+                x: NumberValue::Literal(10.0),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(30.0),
+                height: NumberValue::Literal(40.0),
+            },
+            DrawOp::Fill,
+        ];
+
+        let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
+
+        assert_eq!(
+            render_ops,
+            vec![RenderOp::FillRect {
+                x: 10.0,
+                y: 20.0,
+                width: 30.0,
+                height: 40.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn lowers_numeric_slot_from_json_data() {
+        let data = serde_json::json!({
+            "x": 25.0
+        });
+
+        let draw_ops = vec![
+            DrawOp::RectPath {
+                x: NumberValue::Slot("x".to_string()),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(30.0),
+                height: NumberValue::Literal(40.0),
+            },
+            DrawOp::Fill,
+        ];
+
+        let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
+
+        assert_eq!(
+            render_ops,
+            vec![RenderOp::FillRect {
+                x: 25.0,
+                y: 20.0,
+                width: 30.0,
+                height: 40.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn lowers_integer_slot_from_json_data() {
+        let data = serde_json::json!({
+            "x": 25
+        });
+
+        let draw_ops = vec![
+            DrawOp::LinePath {
+                x1: NumberValue::Slot("x".to_string()),
+                y1: NumberValue::Literal(0.0),
+                x2: NumberValue::Literal(100.0),
+                y2: NumberValue::Literal(100.0),
+            },
+            DrawOp::Stroke,
+        ];
+
+        let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
+
+        assert_eq!(
+            render_ops,
+            vec![RenderOp::StrokeLine {
+                x1: 25.0,
+                y1: 0.0,
+                x2: 100.0,
+                y2: 100.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn errors_when_slot_is_used_without_data() {
+        let draw_ops = vec![
+            DrawOp::RectPath {
+                x: NumberValue::Slot("x".to_string()),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(30.0),
+                height: NumberValue::Literal(40.0),
+            },
+            DrawOp::Fill,
+        ];
+
+        let err = lower_draw_ops(&draw_ops, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            RenderError::MissingData { slot } if slot == "x"
+        ));
+    }
+
+    #[test]
+    fn errors_when_json_field_is_missing() {
+        let data = serde_json::json!({
+            "other": 25.0
+        });
+
+        let draw_ops = vec![
+            DrawOp::RectPath {
+                x: NumberValue::Slot("x".to_string()),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(30.0),
+                height: NumberValue::Literal(40.0),
+            },
+            DrawOp::Fill,
+        ];
+
+        let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+
+        assert!(matches!(
+            err,
+            RenderError::MissingSlot { slot } if slot == "x"
+        ));
+    }
+
+    #[test]
+    fn errors_when_json_field_is_not_a_number() {
+        let data = serde_json::json!({
+            "x": "25"
+        });
+
+        let draw_ops = vec![
+            DrawOp::RectPath {
+                x: NumberValue::Slot("x".to_string()),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(30.0),
+                height: NumberValue::Literal(40.0),
+            },
+            DrawOp::Fill,
+        ];
+
+        let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+
+        assert!(matches!(
+            err,
+            RenderError::InvalidNumberSlot { slot } if slot == "x"
+        ));
     }
 }

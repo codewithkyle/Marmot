@@ -80,7 +80,7 @@ fn render(args: RenderArgs) -> Result<()> {
         .parse_template()
         .map_err(|err| anyhow!("failed to parse template: {err:?}"))?;
 
-    if let Some(data_file) = args.data_file {
+    let data: Option<Value> = if let Some(data_file) = args.data_file {
         let data_source = read_to_string(&data_file)
             .with_context(|| format!("failed to read data: {}", data_file.display()))?;
         let data: Value = serde_json::from_str(&data_source)
@@ -92,9 +92,13 @@ fn render(args: RenderArgs) -> Result<()> {
             }
             bail!("data does not match template slots")
         }
-    }
 
-    render_pdf(&template.page, &template.draw, &args.output_file)
+        Some(data)
+    } else {
+        None
+    };
+
+    render_pdf(&template.page, &template.draw, &args.output_file, data.as_ref())
         .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
 
     println!("wrote {}", args.output_file.display());
