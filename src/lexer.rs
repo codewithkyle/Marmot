@@ -96,6 +96,46 @@ impl<'a> Lexer<'a> {
         return result.trim().into();
     }
 
+    fn consume_string(&mut self) -> Result<String, LexError> {
+        let mut result = String::new();
+        let line = self.line;
+        let column = self.column;
+        self.advance(); // NOTE: consume '('
+        while let Some(ch) = self.peek() {
+            match ch {
+                '\n' => {
+                    return Err(LexError::UnterminatedString { line, column });
+                }
+                '\\' => {
+                    self.advance(); // NOTE: consume escape '\'
+                    let escaped = match self.peek() {
+                        Some('(') => '(',
+                        Some(')') => ')',
+                        Some('\\') => '\\',
+                        Some('n') => '\n',
+                        Some('t') => '\t',
+                        Some('r') => '\r',
+                        Some(other) => other,
+                        None => {
+                            return Err(LexError::UnterminatedString { line, column });
+                        }
+                    };
+                    result.push(escaped);
+                    self.advance(); // NOTE: consume the escaped char
+                }
+                ')' => {
+                    self.advance();
+                    return Ok(result);
+                }
+                _ => {
+                    result.push(ch);
+                    self.advance();
+                }
+            }
+        }
+        Err(LexError::UnterminatedString { line, column })
+    }
+
     fn consume_number(&mut self) -> Result<f64, LexError> {
         let mut result = String::new();
         let mut has_decimal = false;
@@ -172,6 +212,16 @@ impl<'a> Lexer<'a> {
                         column,
                     });
                 }
+                '(' => match self.consume_string() {
+                    Ok(value) => {
+                        tokens.push(Token {
+                            kind: TokenKind::String(value.to_string()),
+                            line,
+                            column,
+                        });
+                    }
+                    Err(err) => return Err(err),
+                },
                 _c if Self::is_word_char(ch) => {
                     let value = self.consume_word();
                     tokens.push(Token {
@@ -240,5 +290,32 @@ mod tests {
 
         assert_eq!(tokens[0].kind, TokenKind::Comment("hello".to_string()));
         assert_eq!(tokens[1].kind, TokenKind::Word("page".to_string()));
+    }
+
+    #[test]
+    fn lexes_string() {
+        let mut lexer = Lexer::new("(Hello world)");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::String("Hello world".to_string()));
+    }
+
+    #[test]
+    fn lexes_escaped_parens() {
+        let mut lexer = Lexer::new(r"(Hello \( world \))");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::String("Hello ( world )".to_string())
+        );
+    }
+
+    #[test]
+    fn errors_on_unterminated_string() {
+        let mut lexer = Lexer::new("(Hello world");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(err, LexError::UnterminatedString { line: 1, column: 1 });
     }
 }

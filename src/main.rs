@@ -48,6 +48,8 @@ fn main() -> Result<()> {
             let source = "
                 page 612.25 792.9974
                 0 0 0 color % this is a comment
+                (Hello (world\\)) show
+                (This \t is a line \t with tabs)
             ";
             let mut lexer = Lexer::new(source);
             match lexer.tokenize() {
