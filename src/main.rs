@@ -1,3 +1,5 @@
+mod lexer;
+use lexer::Lexer;
 use anyhow::{Result, bail};
 use clap::{Arg, ArgMatches, Command};
 use std::path::{Path, PathBuf};
@@ -42,11 +44,22 @@ fn main() -> Result<()> {
 
     match matches.subcommand() {
         Some(("check", sub_matches)) => {
-            let args = parse_check_args(sub_matches)?;
-            // TODO: kick off check(args)?
+            let _args = parse_check_args(sub_matches)?;
+            let source = "page 612 792";
+            let mut lexer = Lexer::new(source);
+            match lexer.tokenize() {
+                Ok(tokens) => {
+                    for token in tokens {
+                        println!("{token:?}");
+                    }
+                }
+                Err(err) => {
+                    eprintln!("Lexer error: {err:?}");
+                }
+            }
         }
         Some(("render", sub_matches)) => {
-            let args = parse_render_args(sub_matches)?;
+            let _args = parse_render_args(sub_matches)?;
             // TODO: kick off render(args)?
         }
         _ => unreachable!("Exhausted list of subcommands."),
