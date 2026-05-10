@@ -7,6 +7,39 @@ pub struct Template {
     pub version: String,
     pub page: Page,
     pub slots: Vec<SlotDecl>,
+    pub draw: Vec<DrawOp>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CurrentPathKind {
+    Line,
+    Rect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DrawOp {
+    SetRgb {
+        r: f64,
+        g: f64,
+        b: f64,
+    },
+    SetStrokeWidth {
+        width: f64,
+    },
+    LinePath {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
+    RectPath {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+    Stroke,
+    Fill,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +64,28 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    CannotFillPath {
+        path: String,
+        line: usize,
+        column: usize,
+    },
+    NoCurrentPath {
+        operator: String,
+        line: usize,
+        column: usize,
+    },
+    StackUnderflow {
+        operator: String,
+        expected: usize,
+        actual: usize,
+        line: usize,
+        column: usize,
+    },
+    UnexpectedDrawToken {
+        found: TokenKind,
+        line: usize,
+        column: usize,
+    },
     InvalidSlotType {
         value: String,
     },
@@ -86,6 +141,7 @@ impl Parser {
         let version = self.parse_header()?;
         let page = self.parse_page()?;
         let slots = self.parse_optional_slots()?;
+        let draw = self.parse_draw()?;
 
         self.expect_eof()?;
 
@@ -93,6 +149,7 @@ impl Parser {
             version,
             page,
             slots,
+            draw,
         })
     }
 
@@ -179,6 +236,139 @@ impl Parser {
                 column: token.column,
             }),
         }
+    }
+
+    fn pop_number(stack: &mut Vec<f64>, operator: &str, token: &Token) -> Result<f64, ParseError> {
+        stack.pop().ok_or_else(|| ParseError::StackUnderflow {
+            operator: operator.to_string(),
+            expected: 1,
+            actual: 0,
+            line: token.line,
+            column: token.column,
+        })
+    }
+
+    fn require_stack(
+        stack: &[f64],
+        operator: &str,
+        expected: usize,
+        token: &Token,
+    ) -> Result<(), ParseError> {
+        if stack.len() < expected {
+            return Err(ParseError::StackUnderflow {
+                operator: operator.to_string(),
+                expected,
+                actual: stack.len(),
+                line: token.line,
+                column: token.column,
+            });
+        }
+        Ok(())
+    }
+
+    fn parse_draw(&mut self) -> Result<Vec<DrawOp>, ParseError> {
+        self.expect_word("draw")?;
+        self.expect_word("begin")?;
+
+        let mut stack: Vec<f64> = Vec::new();
+        let mut ops: Vec<DrawOp> = Vec::new();
+        let mut current_path_kind: Option<CurrentPathKind> = None;
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "draw block".to_string(),
+                });
+            }
+
+            let token = self.advance();
+
+            match &token.kind {
+                TokenKind::Number(value) => {
+                    stack.push(*value);
+                }
+                TokenKind::Word(word) if word == "rgb" => {
+                    Self::require_stack(&stack, "rgb", 3, token)?;
+                    let b = Self::pop_number(&mut stack, "rgb", token)?;
+                    let g = Self::pop_number(&mut stack, "rgb", token)?;
+                    let r = Self::pop_number(&mut stack, "rgb", token)?;
+
+                    ops.push(DrawOp::SetRgb { r, g, b });
+                }
+                TokenKind::Word(word) if word == "strokewidth" => {
+                    Self::require_stack(&stack, "strokewidth", 1, token)?;
+                    let width = Self::pop_number(&mut stack, "strokewidth", token)?;
+
+                    ops.push(DrawOp::SetStrokeWidth { width });
+                }
+                TokenKind::Word(word) if word == "line" => {
+                    Self::require_stack(&stack, "line", 4, token)?;
+                    let y2 = Self::pop_number(&mut stack, "line", token)?;
+                    let x2 = Self::pop_number(&mut stack, "line", token)?;
+                    let y1 = Self::pop_number(&mut stack, "line", token)?;
+                    let x1 = Self::pop_number(&mut stack, "line", token)?;
+
+                    ops.push(DrawOp::LinePath { x1, y1, x2, y2 });
+                    current_path_kind = Some(CurrentPathKind::Line);
+                }
+                TokenKind::Word(word) if word == "rect" => {
+                    Self::require_stack(&stack, "rect", 4, token)?;
+                    let height = Self::pop_number(&mut stack, "rect", token)?;
+                    let width = Self::pop_number(&mut stack, "rect", token)?;
+                    let y = Self::pop_number(&mut stack, "rect", token)?;
+                    let x = Self::pop_number(&mut stack, "rect", token)?;
+
+                    ops.push(DrawOp::RectPath {
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
+                    current_path_kind = Some(CurrentPathKind::Line);
+                }
+                TokenKind::Word(word) if word == "stroke" => {
+                    if current_path_kind.is_none() {
+                        return Err(ParseError::NoCurrentPath {
+                            operator: "stroke".to_string(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+                    ops.push(DrawOp::Stroke);
+                    current_path_kind = None;
+                }
+                TokenKind::Word(word) if word == "fill" => match current_path_kind {
+                    Some(CurrentPathKind::Rect) => {
+                        ops.push(DrawOp::Fill);
+                        current_path_kind = None;
+                    }
+                    Some(CurrentPathKind::Line) => {
+                        return Err(ParseError::CannotFillPath {
+                            path: "line".to_string(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+                    None => {
+                        return Err(ParseError::NoCurrentPath {
+                            operator: "fill".to_string(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+                },
+                found => {
+                    return Err(ParseError::UnexpectedDrawToken {
+                        found: found.clone(),
+                        line: token.line,
+                        column: token.column,
+                    });
+                }
+            }
+        }
+
+        self.expect_word("end")?;
+        Ok(ops)
     }
 
     fn parse_optional_slots(&mut self) -> Result<Vec<SlotDecl>, ParseError> {
@@ -272,6 +462,8 @@ mod tests {
     fn parses_header_and_page() {
         let source = r#"%!PSL 0.1
 page 612 792
+draw begin
+end
 "#;
 
         let mut lexer = Lexer::new(source);
@@ -329,6 +521,8 @@ page
     fn errors_when_extra_tokens_exist() {
         let source = r#"%!PSL 0.1
 page 612 792
+draw begin
+end
 extra
 "#;
 
@@ -342,7 +536,7 @@ extra
             err,
             ParseError::ExpectedEof {
                 found: TokenKind::Word("extra".to_string()),
-                line: 3,
+                line: 5,
                 column: 1,
             }
         );
@@ -352,6 +546,9 @@ extra
     fn parses_template_without_slots() {
         let source = r#"%!PSL 0.1
 page 612 792
+
+draw begin
+end
 "#;
 
         let mut lexer = Lexer::new(source);
@@ -370,6 +567,9 @@ page 612 792
 
 slots begin
   product_name string required
+end
+
+draw begin
 end
 "#;
 
@@ -399,6 +599,9 @@ slots begin
   buy int required
   sale_price decimal required
 end
+
+draw begin
+end
 "#;
 
         let mut lexer = Lexer::new(source);
@@ -420,6 +623,9 @@ page 612 792
 
 slots begin
   product_name text required
+end
+
+draw begin
 end
 "#;
 
@@ -447,6 +653,9 @@ slots begin
   product_name string required
   price string required
 end
+
+draw begin
+end
 "#;
 
         let mut lexer = Lexer::new(source);
@@ -459,5 +668,98 @@ end
         assert_eq!(template.slots[0].name, "product_desc");
         assert_eq!(template.slots[0].ty, SlotType::String);
         assert_eq!(template.slots[0].required, false);
+    }
+
+    #[test]
+    fn parses_simple_draw_block() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  1 0 0 rgb
+  2 strokewidth
+  0 0 10 10 line
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![
+                DrawOp::SetRgb {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 0.0,
+                },
+                DrawOp::SetStrokeWidth { width: 2.0 },
+                DrawOp::LinePath {
+                    x1: 0.0,
+                    y1: 0.0,
+                    x2: 10.0,
+                    y2: 10.0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_when_rgb_has_too_few_values() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  1 0 rgb
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::StackUnderflow {
+                operator: "rgb".to_string(),
+                expected: 3,
+                actual: 2,
+                line: 5,
+                column: 7,
+            }
+        );
+    }
+
+    #[test]
+    fn errors_when_line_has_too_few_values() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0 0 10 line
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::StackUnderflow {
+                operator: "line".to_string(),
+                expected: 4,
+                actual: 3,
+                line: 5,
+                column: 10,
+            }
+        );
     }
 }
