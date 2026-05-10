@@ -1,4 +1,5 @@
 mod lexer;
+mod parser;
 use lexer::Lexer;
 use anyhow::{Result, bail};
 use clap::{Arg, ArgMatches, Command};
