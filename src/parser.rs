@@ -11,6 +11,21 @@ pub struct Template {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum StackValue {
+    Number(f64),
+    String(String),
+}
+
+impl StackValue {
+    fn type_name(&self) -> &'static str {
+        match self {
+            StackValue::Number(_) => "number",
+            StackValue::String(_) => "string",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum CurrentPathKind {
     Line,
     Rect,
@@ -40,6 +55,13 @@ pub enum DrawOp {
     },
     Stroke,
     Fill,
+    TextBox {
+        text: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +86,13 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    UnexpectedStackValue {
+        operator: String,
+        expected: String,
+        found: String,
+        line: usize,
+        column: usize,
+    },
     CannotFillPath {
         path: String,
         line: usize,
@@ -87,9 +116,6 @@ pub enum ParseError {
         column: usize,
     },
     InvalidSlotType {
-        value: String,
-    },
-    InvalidSlotRequirement {
         value: String,
     },
     UnexpectedEof {
@@ -238,18 +264,62 @@ impl Parser {
         }
     }
 
-    fn pop_number(stack: &mut Vec<f64>, operator: &str, token: &Token) -> Result<f64, ParseError> {
-        stack.pop().ok_or_else(|| ParseError::StackUnderflow {
-            operator: operator.to_string(),
-            expected: 1,
-            actual: 0,
-            line: token.line,
-            column: token.column,
-        })
+    fn pop_number(
+        stack: &mut Vec<StackValue>,
+        operator: &str,
+        token: &Token,
+    ) -> Result<f64, ParseError> {
+        let Some(value) = stack.pop() else {
+            return Err(ParseError::StackUnderflow {
+                operator: operator.to_string(),
+                expected: 1,
+                actual: 0,
+                line: token.line,
+                column: token.column,
+            });
+        };
+
+        match value {
+            StackValue::Number(number) => Ok(number),
+            other => Err(ParseError::UnexpectedStackValue {
+                operator: operator.to_string(),
+                expected: "number".to_string(),
+                found: other.type_name().to_string(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
+    }
+
+    fn pop_string(
+        stack: &mut Vec<StackValue>,
+        operator: &str,
+        token: &Token,
+    ) -> Result<String, ParseError> {
+        let Some(value) = stack.pop() else {
+            return Err(ParseError::StackUnderflow {
+                operator: operator.to_string(),
+                expected: 1,
+                actual: 0,
+                line: token.line,
+                column: token.column,
+            });
+        };
+
+        match value {
+            StackValue::String(value) => Ok(value),
+            other => Err(ParseError::UnexpectedStackValue {
+                operator: operator.to_string(),
+                expected: "string".to_string(),
+                found: other.type_name().to_string(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
     }
 
     fn require_stack(
-        stack: &[f64],
+        stack: &[StackValue],
         operator: &str,
         expected: usize,
         token: &Token,
@@ -270,7 +340,7 @@ impl Parser {
         self.expect_word("draw")?;
         self.expect_word("begin")?;
 
-        let mut stack: Vec<f64> = Vec::new();
+        let mut stack: Vec<StackValue> = Vec::new();
         let mut ops: Vec<DrawOp> = Vec::new();
         let mut current_path_kind: Option<CurrentPathKind> = None;
 
@@ -285,7 +355,26 @@ impl Parser {
 
             match &token.kind {
                 TokenKind::Number(value) => {
-                    stack.push(*value);
+                    stack.push(StackValue::Number(*value));
+                }
+                TokenKind::String(value) => {
+                    stack.push(StackValue::String(value.clone()));
+                }
+                TokenKind::Word(word) if word == "textbox" => {
+                    Self::require_stack(&stack, "textbox", 5, token)?;
+                    let height = Self::pop_number(&mut stack, "textbox", token)?;
+                    let width = Self::pop_number(&mut stack, "textbox", token)?;
+                    let y = Self::pop_number(&mut stack, "textbox", token)?;
+                    let x = Self::pop_number(&mut stack, "textbox", token)?;
+                    let text = Self::pop_string(&mut stack, "textbox", token)?;
+
+                    ops.push(DrawOp::TextBox {
+                        text,
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
                 }
                 TokenKind::Word(word) if word == "rgb" => {
                     Self::require_stack(&stack, "rgb", 3, token)?;
@@ -759,6 +848,90 @@ end
                 actual: 3,
                 line: 5,
                 column: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_static_textbox() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (Hello world) 0 0 100 100 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![DrawOp::TextBox {
+                text: "Hello world".to_string(),
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn errors_when_textbox_text_is_missing() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0 0 100 100 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::StackUnderflow {
+                operator: "textbox".to_string(),
+                expected: 5,
+                actual: 4,
+                line: 5,
+                column: 15,
+            }
+        );
+    }
+
+    #[test]
+    fn errors_when_textbox_text_is_not_string() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  1 0 0 100 100 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::UnexpectedStackValue {
+                operator: "textbox".to_string(),
+                expected: "string".to_string(),
+                found: "number".to_string(),
+                line: 5,
+                column: 17,
             }
         );
     }
