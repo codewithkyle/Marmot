@@ -97,18 +97,20 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    UnpaintedPath {
+        line: usize,
+        column: usize,
+    },
+    UnusedStackValues {
+        count: usize,
+        line: usize,
+        column: usize,
+    },
     InvalidNumberOperand {
         operator: String,
         operand: String,
         value: f64,
         expected: String,
-        line: usize,
-        column: usize,
-    },
-    InvalidSlotUsage {
-        name: String,
-        expected: String,
-        actual: String,
         line: usize,
         column: usize,
     },
@@ -405,7 +407,7 @@ impl Parser {
         token: &Token,
     ) -> Result<(), ParseError> {
         match value {
-            NumberValue::Literal(n) if !n.is_finite() || *n < 0.0 => {
+            NumberValue::Literal(n) if !n.is_finite() || *n <= 0.0 => {
                 Err(ParseError::InvalidNumberOperand {
                     operator: operator.to_string(),
                     operand: operand.to_string(),
@@ -501,21 +503,30 @@ impl Parser {
                     ops.push(DrawOp::SetStrokeWidth { width });
                 }
                 TokenKind::Word(word) if word == "line" => {
+                    if current_path_kind.is_some() {
+                        return Err(ParseError::UnpaintedPath {
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+
                     Self::require_stack(&stack, "line", 4, token)?;
                     let y2 = Self::pop_number(&mut stack, "line", token)?;
                     let x2 = Self::pop_number(&mut stack, "line", token)?;
                     let y1 = Self::pop_number(&mut stack, "line", token)?;
                     let x1 = Self::pop_number(&mut stack, "line", token)?;
 
-                    Self::validate_literal_positive(&x1, "line", "x1", token)?;
-                    Self::validate_literal_positive(&y1, "line", "y1", token)?;
-                    Self::validate_literal_positive(&x2, "line", "x2", token)?;
-                    Self::validate_literal_positive(&y2, "line", "y2", token)?;
-
                     ops.push(DrawOp::LinePath { x1, y1, x2, y2 });
                     current_path_kind = Some(CurrentPathKind::Line);
                 }
                 TokenKind::Word(word) if word == "rect" => {
+                    if current_path_kind.is_some() {
+                        return Err(ParseError::UnpaintedPath {
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+
                     Self::require_stack(&stack, "rect", 4, token)?;
                     let height = Self::pop_number(&mut stack, "rect", token)?;
                     let width = Self::pop_number(&mut stack, "rect", token)?;
@@ -572,6 +583,22 @@ impl Parser {
                     });
                 }
             }
+        }
+
+        if !stack.is_empty() {
+            let token = self.peek();
+            return Err(ParseError::UnusedStackValues {
+                count: stack.len(),
+                line: token.line,
+                column: token.column,
+            });
+        }
+        if current_path_kind.is_some() {
+            let token = self.peek();
+            return Err(ParseError::UnpaintedPath {
+                line: token.line,
+                column: token.column,
+            });
         }
 
         self.expect_word("end")?;
@@ -885,7 +912,7 @@ page 612 792
 draw begin
   1 0 0 rgb
   2 strokewidth
-  0 0 10 10 line
+  0 0 10 10 line stroke
 end
 "#;
 
@@ -912,6 +939,7 @@ end
                     x2: NumberValue::Literal(10.0),
                     y2: NumberValue::Literal(10.0),
                 },
+                DrawOp::Stroke,
             ]
         );
     }
@@ -1234,6 +1262,65 @@ end
                 g: NumberValue::Literal(0.0),
                 b: NumberValue::Literal(0.0),
             }]
+        );
+    }
+
+    #[test]
+    fn errors_on_zero_rect_width() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0 0 0 10 rect fill
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::InvalidNumberOperand {
+                operator: "rect".to_string(),
+                operand: "width".to_string(),
+                value: 0.0,
+                expected: "> 0".to_string(),
+                line: 5,
+                column: 12,
+            }
+        );
+    }
+
+    #[test]
+    fn allows_zero_line_coordinates() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0 0 10 10 line stroke
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![
+                DrawOp::LinePath {
+                    x1: NumberValue::Literal(0.0),
+                    y1: NumberValue::Literal(0.0),
+                    x2: NumberValue::Literal(10.0),
+                    y2: NumberValue::Literal(10.0),
+                },
+                DrawOp::Stroke,
+            ]
         );
     }
 }
