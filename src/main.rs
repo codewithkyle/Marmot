@@ -1,7 +1,7 @@
 mod lexer;
 mod parser;
-mod validator;
 mod renderer;
+mod validator;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgMatches, Command};
@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{lexer::Lexer, parser::Parser, validator::validate_data};
+use crate::{lexer::Lexer, parser::Parser, renderer::render_pdf, validator::validate_data};
 
 struct CheckArgs {
     template_file: PathBuf,
@@ -57,11 +57,47 @@ fn main() -> Result<()> {
             check(args)?;
         }
         Some(("render", sub_matches)) => {
-            let _args = parse_render_args(sub_matches)?;
-            // TODO: kick off render(args)?
+            let args = parse_render_args(sub_matches)?;
+            render(args)?;
         }
         _ => unreachable!("Exhausted list of subcommands."),
     };
+
+    Ok(())
+}
+
+fn render(args: RenderArgs) -> Result<()> {
+    let template_source = read_to_string(&args.template_file)
+        .with_context(|| format!("failed to read template: {}", args.template_file.display()))?;
+
+    let mut lexer = Lexer::new(&template_source);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
+
+    let mut parser = Parser::new(tokens);
+    let template = parser
+        .parse_template()
+        .map_err(|err| anyhow!("failed to parse template: {err:?}"))?;
+
+    if let Some(data_file) = args.data_file {
+        let data_source = read_to_string(&data_file)
+            .with_context(|| format!("failed to read data: {}", data_file.display()))?;
+        let data: Value = serde_json::from_str(&data_source)
+            .with_context(|| format!("failed to parse JSON: {}", data_file.display()))?;
+
+        if let Err(errors) = validate_data(&template, &data) {
+            for error in errors {
+                eprintln!("validation error: {error:?}");
+            }
+            bail!("data does not match template slots")
+        }
+    }
+
+    render_pdf(&template.page, &template.draw, &args.output_file)
+        .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
+
+    println!("wrote {}", args.output_file.display());
 
     Ok(())
 }
