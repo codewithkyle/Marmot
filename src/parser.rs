@@ -97,6 +97,12 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    InvalidRgbComponent {
+        component: String,
+        value: f64,
+        line: usize,
+        column: usize,
+    },
     InvalidSlotUsage {
         name: String,
         expected: String,
@@ -245,9 +251,7 @@ impl Parser {
                 self.advance();
                 true
             }
-            _ => {
-                false
-            }
+            _ => false,
         }
     }
 
@@ -369,6 +373,25 @@ impl Parser {
             .collect()
     }
 
+    fn validate_rgb_component(
+        value: &NumberValue,
+        component: &str,
+        token: &Token,
+    ) -> Result<(), ParseError> {
+        match value {
+            NumberValue::Literal(n) if !(0.0..=1.0).contains(n) => {
+                Err(ParseError::InvalidRgbComponent {
+                    component: component.to_string(),
+                    value: *n,
+                    line: token.line,
+                    column: token.column,
+                })
+            }
+            NumberValue::Literal(_) => Ok(()),
+            NumberValue::Slot(_) => Ok(()),
+        }
+    }
+
     fn parse_draw(&mut self, slots: &HashMap<String, SlotType>) -> Result<Vec<DrawOp>, ParseError> {
         self.expect_word("draw")?;
         self.expect_word("begin")?;
@@ -432,6 +455,10 @@ impl Parser {
                     let b = Self::pop_number(&mut stack, "rgb", token)?;
                     let g = Self::pop_number(&mut stack, "rgb", token)?;
                     let r = Self::pop_number(&mut stack, "rgb", token)?;
+
+                    Self::validate_rgb_component(&r, "r", token)?;
+                    Self::validate_rgb_component(&g, "g", token)?;
+                    Self::validate_rgb_component(&b, "b", token)?;
 
                     ops.push(DrawOp::SetRgb { r, g, b });
                 }
@@ -1107,6 +1134,63 @@ end
                 y: NumberValue::Literal(0.0),
                 width: NumberValue::Literal(100.0),
                 height: NumberValue::Literal(100.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn errors_on_invalid_literal_rgb_component() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  2 0 0 rgb
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::InvalidRgbComponent {
+                component: "r".to_string(),
+                value: 2.0,
+                line: 5,
+                column: 9,
+            }
+        );
+    }
+
+    #[test]
+    fn allows_slot_rgb_component() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+slots begin
+  r decimal
+end
+
+draw begin
+  $(r) 0 0 rgb
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.draw,
+            vec![DrawOp::SetRgb {
+                r: NumberValue::Slot("r".to_string()),
+                g: NumberValue::Literal(0.0),
+                b: NumberValue::Literal(0.0),
             }]
         );
     }
