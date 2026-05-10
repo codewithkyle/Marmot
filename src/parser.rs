@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 
 use crate::lexer::{Token, TokenKind};
@@ -12,15 +14,15 @@ pub struct Template {
 
 #[derive(Debug, Clone, PartialEq)]
 enum StackValue {
-    Number(f64),
-    String(String),
+    Number(NumberValue),
+    Text(TextValue),
 }
 
 impl StackValue {
     fn type_name(&self) -> &'static str {
         match self {
             StackValue::Number(_) => "number",
-            StackValue::String(_) => "string",
+            StackValue::Text(_) => "string",
         }
     }
 }
@@ -32,35 +34,47 @@ enum CurrentPathKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum TextValue {
+    Literal(String),
+    Slot(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NumberValue {
+    Literal(f64),
+    Slot(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DrawOp {
     SetRgb {
-        r: f64,
-        g: f64,
-        b: f64,
+        r: NumberValue,
+        g: NumberValue,
+        b: NumberValue,
     },
     SetStrokeWidth {
-        width: f64,
+        width: NumberValue,
     },
     LinePath {
-        x1: f64,
-        y1: f64,
-        x2: f64,
-        y2: f64,
+        x1: NumberValue,
+        y1: NumberValue,
+        x2: NumberValue,
+        y2: NumberValue,
     },
     RectPath {
-        x: f64,
-        y: f64,
-        width: f64,
-        height: f64,
+        x: NumberValue,
+        y: NumberValue,
+        width: NumberValue,
+        height: NumberValue,
     },
     Stroke,
     Fill,
     TextBox {
-        text: String,
-        x: f64,
-        y: f64,
-        width: f64,
-        height: f64,
+        text: TextValue,
+        x: NumberValue,
+        y: NumberValue,
+        width: NumberValue,
+        height: NumberValue,
     },
 }
 
@@ -86,6 +100,18 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    InvalidSlotUsage {
+        name: String,
+        expected: String,
+        actual: String,
+        line: usize,
+        column: usize,
+    },
+    UnknownSlot {
+        name: String,
+        line: usize,
+        column: usize,
+    },
     UnexpectedStackValue {
         operator: String,
         expected: String,
@@ -166,8 +192,11 @@ impl Parser {
     pub fn parse_template(&mut self) -> Result<Template, ParseError> {
         let version = self.parse_header()?;
         let page = self.parse_page()?;
+
         let slots = self.parse_optional_slots()?;
-        let draw = self.parse_draw()?;
+        let slot_lookup = Self::build_slot_lookup(&slots);
+
+        let draw = self.parse_draw(&slot_lookup)?;
 
         self.expect_eof()?;
 
@@ -268,7 +297,7 @@ impl Parser {
         stack: &mut Vec<StackValue>,
         operator: &str,
         token: &Token,
-    ) -> Result<f64, ParseError> {
+    ) -> Result<NumberValue, ParseError> {
         let Some(value) = stack.pop() else {
             return Err(ParseError::StackUnderflow {
                 operator: operator.to_string(),
@@ -295,7 +324,7 @@ impl Parser {
         stack: &mut Vec<StackValue>,
         operator: &str,
         token: &Token,
-    ) -> Result<String, ParseError> {
+    ) -> Result<TextValue, ParseError> {
         let Some(value) = stack.pop() else {
             return Err(ParseError::StackUnderflow {
                 operator: operator.to_string(),
@@ -307,7 +336,7 @@ impl Parser {
         };
 
         match value {
-            StackValue::String(value) => Ok(value),
+            StackValue::Text(value) => Ok(value),
             other => Err(ParseError::UnexpectedStackValue {
                 operator: operator.to_string(),
                 expected: "string".to_string(),
@@ -336,7 +365,14 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_draw(&mut self) -> Result<Vec<DrawOp>, ParseError> {
+    fn build_slot_lookup(slots: &Vec<SlotDecl>) -> HashMap<String, SlotType> {
+         slots
+            .iter()
+            .map(|slot| (slot.name.clone(), slot.ty.clone()))
+            .collect()
+    }
+
+    fn parse_draw(&mut self, slots: &HashMap<String, SlotType>) -> Result<Vec<DrawOp>, ParseError> {
         self.expect_word("draw")?;
         self.expect_word("begin")?;
 
@@ -355,10 +391,28 @@ impl Parser {
 
             match &token.kind {
                 TokenKind::Number(value) => {
-                    stack.push(StackValue::Number(*value));
+                    stack.push(StackValue::Number(NumberValue::Literal(*value)));
                 }
                 TokenKind::String(value) => {
-                    stack.push(StackValue::String(value.clone()));
+                    stack.push(StackValue::Text(TextValue::Literal(value.clone())));
+                }
+                TokenKind::Slot(slot_name) => {
+                    let Some(slot_ty) = slots.get(slot_name) else {
+                        return Err(ParseError::UnknownSlot {
+                            name: slot_name.clone(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    };
+
+                    match slot_ty {
+                        SlotType::String => {
+                            stack.push(StackValue::Text(TextValue::Slot(slot_name.clone())));
+                        }
+                        SlotType::Int | SlotType::Decimal => {
+                            stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
+                        }
+                    }
                 }
                 TokenKind::Word(word) if word == "textbox" => {
                     Self::require_stack(&stack, "textbox", 5, token)?;
@@ -781,16 +835,16 @@ end
             template.draw,
             vec![
                 DrawOp::SetRgb {
-                    r: 1.0,
-                    g: 0.0,
-                    b: 0.0,
+                    r: NumberValue::Literal(1.0),
+                    g: NumberValue::Literal(0.0),
+                    b: NumberValue::Literal(0.0),
                 },
-                DrawOp::SetStrokeWidth { width: 2.0 },
+                DrawOp::SetStrokeWidth { width: NumberValue::Literal(2.0) },
                 DrawOp::LinePath {
-                    x1: 0.0,
-                    y1: 0.0,
-                    x2: 10.0,
-                    y2: 10.0,
+                    x1: NumberValue::Literal(0.0),
+                    y1: NumberValue::Literal(0.0),
+                    x2: NumberValue::Literal(10.0),
+                    y2: NumberValue::Literal(10.0),
                 },
             ]
         );
@@ -871,11 +925,11 @@ end
         assert_eq!(
             template.draw,
             vec![DrawOp::TextBox {
-                text: "Hello world".to_string(),
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 100.0,
+                text: TextValue::Literal("Hello world".to_string()),
+                x: NumberValue::Literal(0.0),
+                y: NumberValue::Literal(0.0),
+                width: NumberValue::Literal(100.0),
+                height: NumberValue::Literal(100.0),
             }]
         );
     }
