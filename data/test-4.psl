@@ -1,0 +1,10 @@
+%!PSL 0.1
+page 300 120
+
+draw begin
+  1 1 1 rgb
+  0 0 300 120 rect fill
+
+  0 0 0 rgb
+  (Hello Marmot) 20 40 260 40 textbox
+end

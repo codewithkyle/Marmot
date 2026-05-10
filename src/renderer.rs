@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
+use pango::FontDescription;
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -214,6 +215,21 @@ pub fn lower_draw_ops(
     Ok(render_ops)
 }
 
+fn render_textbox(ctx: &Context, text: &str, x: f64, y: f64, width: f64, height: f64) {
+    let layout = pangocairo::functions::create_layout(ctx);
+    layout.set_text(text);
+
+    let font = FontDescription::from_string("Sans 24");
+    layout.set_font_description(Some(&font));
+
+    layout.set_width((width * pango::SCALE as f64) as i32);
+    layout.set_height((height * pango::SCALE as f64) as i32);
+
+    ctx.move_to(x, y);
+
+    pangocairo::functions::show_layout(ctx, &layout);
+}
+
 fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), RenderError> {
     for op in render_ops {
         match op {
@@ -245,6 +261,15 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
             } => {
                 ctx.rectangle(*x, *y, *width, *height);
                 ctx.fill()?;
+            }
+            RenderOp::TextBox {
+                text,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                render_textbox(ctx, text, *x, *y, *width, *height);
             }
             _ => todo!("execute render op"),
         }
@@ -647,5 +672,52 @@ mod tests {
             err,
             RenderError::InvalidTextSlot { slot } if slot == "product_name"
         ));
+    }
+
+    #[test]
+    fn renders_static_text_pdf() {
+        use crate::parser::{DrawOp, NumberValue, Page, TextValue};
+        use std::fs;
+
+        let page = Page {
+            width: 200.0,
+            height: 100.0,
+        };
+
+        let draw_ops = vec![
+            DrawOp::SetRgb {
+                r: NumberValue::Literal(1.0),
+                g: NumberValue::Literal(1.0),
+                b: NumberValue::Literal(1.0),
+            },
+            DrawOp::RectPath {
+                x: NumberValue::Literal(0.0),
+                y: NumberValue::Literal(0.0),
+                width: NumberValue::Literal(200.0),
+                height: NumberValue::Literal(100.0),
+            },
+            DrawOp::Fill,
+            DrawOp::SetRgb {
+                r: NumberValue::Literal(0.0),
+                g: NumberValue::Literal(0.0),
+                b: NumberValue::Literal(0.0),
+            },
+            DrawOp::TextBox {
+                text: TextValue::Literal("Hello Marmot".to_string()),
+                x: NumberValue::Literal(20.0),
+                y: NumberValue::Literal(35.0),
+                width: NumberValue::Literal(160.0),
+                height: NumberValue::Literal(40.0),
+            },
+        ];
+
+        let output_path = std::env::temp_dir().join("marmot_text_render_test.pdf");
+
+        render_pdf(&page, &draw_ops, &output_path, None).unwrap();
+
+        let metadata = fs::metadata(&output_path).unwrap();
+        assert!(metadata.len() > 0);
+
+        let _ = fs::remove_file(output_path);
     }
 }

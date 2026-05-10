@@ -1,0 +1,14 @@
+%!PSL 0.1
+page 300 120
+
+slots begin
+  product_name string required
+end
+
+draw begin
+  1 1 1 rgb
+  0 0 300 120 rect fill
+
+  0 0 0 rgb
+  $(product_name) 20 40 260 40 textbox
+end
