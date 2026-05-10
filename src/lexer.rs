@@ -116,11 +116,11 @@ impl<'a> Lexer<'a> {
         result.trim().into()
     }
 
-    fn consume_string(&mut self) -> Result<String, LexError> {
+    fn consume_delimited_string(&mut self, closing: char) -> Result<String, LexError> {
         let mut result = String::new();
         let line = self.line;
         let column = self.column;
-        self.advance(); // NOTE: consume '('
+        self.advance();
         while let Some(ch) = self.peek() {
             match ch {
                 '\n' => {
@@ -143,7 +143,7 @@ impl<'a> Lexer<'a> {
                     result.push(escaped);
                     self.advance(); // NOTE: consume the escaped char
                 }
-                ')' => {
+                c if c == closing => {
                     self.advance();
                     return Ok(result);
                 }
@@ -285,7 +285,15 @@ impl<'a> Lexer<'a> {
                     });
                 }
                 '(' => {
-                    let value = self.consume_string()?;
+                    let value = self.consume_delimited_string(')')?;
+                    tokens.push(Token {
+                        kind: TokenKind::String(value),
+                        line,
+                        column,
+                    });
+                }
+                '"' => {
+                    let value = self.consume_delimited_string('"')?;
                     tokens.push(Token {
                         kind: TokenKind::String(value),
                         line,
