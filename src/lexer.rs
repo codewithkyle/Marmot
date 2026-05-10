@@ -76,21 +76,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn is_word_char(ch: char) -> bool {
-        return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
-    }
-
-    fn is_slot_char(ch: char) -> bool {
-        return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
+        ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_')
     }
 
     fn is_word_start(ch: char) -> bool {
-        return ch.is_ascii_alphabetic() || ch == '_';
+        ch.is_ascii_alphabetic() || ch == '_'
     }
 
     fn consume_word(&mut self) -> Result<String, LexError> {
         let mut result = String::new();
-        let line = self.line;
-        let column = self.column;
         while let Some(ch) = self.peek() {
             if Self::is_word_char(ch) {
                 result.push(ch);
@@ -119,7 +113,7 @@ impl<'a> Lexer<'a> {
             result.push(ch);
             self.advance();
         }
-        return result.trim().into();
+        result.trim().into()
     }
 
     fn consume_string(&mut self) -> Result<String, LexError> {
@@ -189,7 +183,7 @@ impl<'a> Lexer<'a> {
                     }
                     return Ok(result);
                 }
-                c if Self::is_slot_char(c) => {
+                c if Self::is_word_char(c) => {
                     result.push(c);
                     self.advance();
                 }
@@ -208,8 +202,16 @@ impl<'a> Lexer<'a> {
         let column = self.column;
         while let Some(ch) = self.peek() {
             match ch {
-                c if c.is_whitespace() || !c.is_ascii() => {
+                c if c.is_whitespace() => {
                     break;
+                }
+                c if !c.is_ascii() => {
+                    result.push(c);
+                    return Err(LexError::InvalidNumber {
+                        value: result,
+                        line,
+                        column,
+                    });
                 }
                 c if c.is_ascii_digit() => {
                     result.push(ch);
@@ -239,6 +241,13 @@ impl<'a> Lexer<'a> {
                     return Err(LexError::UnknownCharacter { ch, line, column });
                 }
             }
+        }
+        if result.ends_with('.') {
+            return Err(LexError::InvalidNumber {
+                value: result,
+                line,
+                column,
+            });
         }
         let value = result.parse::<f64>().map_err(|_| LexError::InvalidNumber {
             value: result.clone(),
@@ -421,5 +430,92 @@ mod tests {
             err,
             LexError::UnterminatedSlotVariable { line: 1, column: 1 }
         );
+    }
+
+    #[test]
+    fn lexes_words() {
+        let mut lexer = Lexer::new("page draw begin product_name");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::Word("page".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Word("draw".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::Word("begin".to_string()));
+        assert_eq!(tokens[3].kind, TokenKind::Word("product_name".to_string()));
+    }
+
+    #[test]
+    fn lexes_numbers() {
+        let mut lexer = Lexer::new("612 72.5 0.25");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::Number(612.0));
+        assert_eq!(tokens[1].kind, TokenKind::Number(72.5));
+        assert_eq!(tokens[2].kind, TokenKind::Number(0.25));
+    }
+
+    #[test]
+    fn errors_on_invalid_number_with_word_suffix() {
+        let mut lexer = Lexer::new("72rect");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(
+            err,
+            LexError::InvalidNumber {
+                value: "72r".to_string(),
+                line: 1,
+                column: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn errors_on_invalid_number_with_comma() {
+        let mut lexer = Lexer::new("72,100");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(
+            err,
+            LexError::InvalidNumber {
+                value: "72,".to_string(),
+                line: 1,
+                column: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn lexes_small_template() {
+        let source = r#"
+%!PSL 0.1
+
+page 612 792
+
+draw begin
+  1 0 0 rgb
+  $(product_name) 72 100 468 80 textbox
+  (Hello \(world\)) 72 200 468 80 textbox
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        assert!(
+            tokens
+                .iter()
+                .any(|t| t.kind == TokenKind::Word("page".to_string()))
+        );
+        assert!(tokens.iter().any(|t| t.kind == TokenKind::Number(612.0)));
+        assert!(
+            tokens
+                .iter()
+                .any(|t| t.kind == TokenKind::Slot("product_name".to_string()))
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|t| t.kind == TokenKind::String("Hello (world)".to_string()))
+        );
+        assert_eq!(tokens.last().unwrap().kind, TokenKind::Eof);
     }
 }
