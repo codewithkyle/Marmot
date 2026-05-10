@@ -6,6 +6,7 @@ pub enum TokenKind {
     Number(f64),
     String(String),
     Comment(String),
+    Slot(String),
     Eof,
 }
 
@@ -29,6 +30,14 @@ pub enum LexError {
     },
     InvalidNumber {
         value: String,
+        line: usize,
+        column: usize,
+    },
+    InvalidSlotVariable {
+        line: usize,
+        column: usize,
+    },
+    UnterminatedSlotVariable {
         line: usize,
         column: usize,
     },
@@ -70,17 +79,34 @@ impl<'a> Lexer<'a> {
         return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
     }
 
-    fn consume_word(&mut self) -> String {
+    fn is_slot_char(ch: char) -> bool {
+        return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
+    }
+
+    fn is_word_start(ch: char) -> bool {
+        return ch.is_ascii_alphabetic() || ch == '_';
+    }
+
+    fn consume_word(&mut self) -> Result<String, LexError> {
         let mut result = String::new();
+        let line = self.line;
+        let column = self.column;
         while let Some(ch) = self.peek() {
             if Self::is_word_char(ch) {
                 result.push(ch);
                 self.advance();
             } else {
+                if !ch.is_whitespace() {
+                    return Err(LexError::UnknownCharacter {
+                        ch,
+                        line: self.line,
+                        column: self.column,
+                    });
+                }
                 break;
             }
         }
-        return result;
+        Ok(result)
     }
 
     fn consume_comment(&mut self) -> String {
@@ -134,6 +160,45 @@ impl<'a> Lexer<'a> {
             }
         }
         Err(LexError::UnterminatedString { line, column })
+    }
+
+    fn consume_slot_variable(&mut self) -> Result<String, LexError> {
+        let mut result = String::new();
+        let line = self.line;
+        let column = self.column;
+        self.advance(); // NOTE: consume '$'
+        if self.peek() != Some('(') {
+            return Err(LexError::InvalidSlotVariable { line, column });
+        }
+        self.advance(); // NOTE: consume '('
+        let Some(first) = self.peek() else {
+            return Err(LexError::UnterminatedSlotVariable { line, column });
+        };
+        if !Self::is_word_start(first) {
+            return Err(LexError::InvalidSlotVariable { line, column });
+        }
+        while let Some(ch) = self.peek() {
+            match ch {
+                '\n' => {
+                    return Err(LexError::UnterminatedSlotVariable { line, column });
+                }
+                ')' => {
+                    self.advance();
+                    if result.is_empty() {
+                        return Err(LexError::InvalidSlotVariable { line, column });
+                    }
+                    return Ok(result);
+                }
+                c if Self::is_slot_char(c) => {
+                    result.push(c);
+                    self.advance();
+                }
+                _ => {
+                    return Err(LexError::InvalidSlotVariable { line, column });
+                }
+            }
+        }
+        Err(LexError::UnterminatedSlotVariable { line, column })
     }
 
     fn consume_number(&mut self) -> Result<f64, LexError> {
@@ -194,38 +259,42 @@ impl<'a> Lexer<'a> {
                 c if c.is_whitespace() => {
                     self.advance();
                 }
-                c if c.is_ascii_digit() => match self.consume_number() {
-                    Ok(value) => {
-                        tokens.push(Token {
-                            kind: TokenKind::Number(value),
-                            line,
-                            column,
-                        });
-                    }
-                    Err(err) => return Err(err),
-                },
-                '%' => {
-                    let value = self.consume_comment();
+                c if c.is_ascii_digit() => {
+                    let value = self.consume_number()?;
                     tokens.push(Token {
-                        kind: TokenKind::Comment(value.to_string()),
+                        kind: TokenKind::Number(value),
                         line,
                         column,
                     });
                 }
-                '(' => match self.consume_string() {
-                    Ok(value) => {
-                        tokens.push(Token {
-                            kind: TokenKind::String(value.to_string()),
-                            line,
-                            column,
-                        });
-                    }
-                    Err(err) => return Err(err),
-                },
-                _c if Self::is_word_char(ch) => {
-                    let value = self.consume_word();
+                '%' => {
+                    let value = self.consume_comment();
                     tokens.push(Token {
-                        kind: TokenKind::Word(value.to_string()),
+                        kind: TokenKind::Comment(value),
+                        line,
+                        column,
+                    });
+                }
+                '(' => {
+                    let value = self.consume_string()?;
+                    tokens.push(Token {
+                        kind: TokenKind::String(value),
+                        line,
+                        column,
+                    });
+                }
+                '$' => {
+                    let value = self.consume_slot_variable()?;
+                    tokens.push(Token {
+                        kind: TokenKind::Slot(value),
+                        line,
+                        column,
+                    });
+                }
+                _c if Self::is_word_start(ch) => {
+                    let value = self.consume_word()?;
+                    tokens.push(Token {
+                        kind: TokenKind::Word(value),
                         line,
                         column,
                     });
@@ -317,5 +386,40 @@ mod tests {
         let err = lexer.tokenize().unwrap_err();
 
         assert_eq!(err, LexError::UnterminatedString { line: 1, column: 1 });
+    }
+
+    #[test]
+    fn lexes_slot_variable() {
+        let mut lexer = Lexer::new("$(product_name)");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::Slot("product_name".to_string()));
+    }
+
+    #[test]
+    fn errors_on_slot_without_open_paren() {
+        let mut lexer = Lexer::new("$product_name)");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(err, LexError::InvalidSlotVariable { line: 1, column: 1 });
+    }
+
+    #[test]
+    fn errors_on_empty_slot() {
+        let mut lexer = Lexer::new("$()");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(err, LexError::InvalidSlotVariable { line: 1, column: 1 });
+    }
+
+    #[test]
+    fn errors_on_unterminated_slot() {
+        let mut lexer = Lexer::new("$(product_name");
+        let err = lexer.tokenize().unwrap_err();
+
+        assert_eq!(
+            err,
+            LexError::UnterminatedSlotVariable { line: 1, column: 1 }
+        );
     }
 }

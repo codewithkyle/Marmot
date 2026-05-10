@@ -50,6 +50,8 @@ fn main() -> Result<()> {
                 0 0 0 color % this is a comment
                 (Hello (world\\)) show
                 (This \t is a line \t with tabs)
+                $(product_name)
+                color_is_here
             ";
             let mut lexer = Lexer::new(source);
             match lexer.tokenize() {
