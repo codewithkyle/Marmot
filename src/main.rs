@@ -45,7 +45,10 @@ fn main() -> Result<()> {
     match matches.subcommand() {
         Some(("check", sub_matches)) => {
             let _args = parse_check_args(sub_matches)?;
-            let source = "page 612.25 792.9974";
+            let source = "
+                page 612.25 792.9974
+                0 0 0 color % this is a comment
+            ";
             let mut lexer = Lexer::new(source);
             match lexer.tokenize() {
                 Ok(tokens) => {

@@ -70,7 +70,7 @@ impl<'a> Lexer<'a> {
         return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
     }
 
-    fn consume_word(&mut self) -> Result<String, LexError> {
+    fn consume_word(&mut self) -> String {
         let mut result = String::new();
         while let Some(ch) = self.peek() {
             if Self::is_word_char(ch) {
@@ -80,7 +80,20 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        Ok(result)
+        return result;
+    }
+
+    fn consume_comment(&mut self) -> String {
+        let mut result = String::new();
+        self.advance(); // NOTE: consume '%'
+        while let Some(ch) = self.peek() {
+            if ch == '\n' {
+                break;
+            }
+            result.push(ch);
+            self.advance();
+        }
+        return result.trim().into();
     }
 
     fn consume_number(&mut self) -> Result<f64, LexError> {
@@ -151,16 +164,22 @@ impl<'a> Lexer<'a> {
                     }
                     Err(err) => return Err(err),
                 },
-                _c if Self::is_word_char(ch) => match self.consume_word() {
-                    Ok(value) => {
-                        tokens.push(Token {
-                            kind: TokenKind::Word(value.to_string()),
-                            line,
-                            column,
-                        });
-                    }
-                    Err(err) => return Err(err),
-                },
+                '%' => {
+                    let value = self.consume_comment();
+                    tokens.push(Token {
+                        kind: TokenKind::Comment(value.to_string()),
+                        line,
+                        column,
+                    });
+                }
+                _c if Self::is_word_char(ch) => {
+                    let value = self.consume_word();
+                    tokens.push(Token {
+                        kind: TokenKind::Word(value.to_string()),
+                        line,
+                        column,
+                    });
+                }
                 _ => {
                     return Err(LexError::UnknownCharacter { ch, line, column });
                 }
@@ -203,5 +222,23 @@ mod tests {
                 column: 1,
             }
         );
+    }
+
+    #[test]
+    fn lexes_comment() {
+        let mut lexer = Lexer::new("% hello");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::Comment("hello".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn lexes_comment_then_word_on_next_line() {
+        let mut lexer = Lexer::new("% hello\npage");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens[0].kind, TokenKind::Comment("hello".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Word("page".to_string()));
     }
 }
