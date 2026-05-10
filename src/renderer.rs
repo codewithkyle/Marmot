@@ -1,4 +1,7 @@
-use crate::parser::{DrawOp, NumberValue};
+use std::path::Path;
+
+use crate::parser::{DrawOp, NumberValue, Page};
+use cairo::{Context, PdfSurface};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -28,6 +31,24 @@ pub enum RenderOp {
         width: f64,
         height: f64,
     },
+}
+
+#[derive(Debug)]
+pub enum RenderError {
+    Cario(cairo::Error),
+    Io(std::io::Error),
+}
+
+impl From<cairo::Error> for RenderError {
+    fn from(err: cairo::Error) -> Self {
+        RenderError::Cario(err)
+    }
+}
+
+impl From<std::io::Error> for RenderError {
+    fn from(err: std::io::Error) -> Self {
+        RenderError::Io(err)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +170,58 @@ pub fn lower_draw_ops(draw_ops: &[DrawOp]) -> Vec<RenderOp> {
     render_ops
 }
 
+fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), RenderError> {
+    for op in render_ops {
+        match op {
+            RenderOp::SetRgb { r, g, b } => {
+                ctx.set_source_rgb(*r, *g, *b);
+            }
+            RenderOp::SetStrokeWidth { width } => {
+                ctx.set_line_width(*width);
+            }
+            RenderOp::StrokeLine { x1, y1, x2, y2 } => {
+                ctx.move_to(*x1, *y1);
+                ctx.line_to(*x2, *y2);
+                ctx.stroke()?;
+            }
+            RenderOp::StrokeRect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                ctx.rectangle(*x, *y, *width, *height);
+                ctx.stroke()?;
+            }
+            RenderOp::FillRect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                ctx.rectangle(*x, *y, *width, *height);
+                ctx.fill()?;
+            }
+            _ => todo!("execute render op"),
+        }
+    }
+
+    Ok(())
+}
+
+pub fn render_pdf(page: &Page, draw_ops: &[DrawOp], output_path: &Path) -> Result<(), RenderError> {
+    let render_ops = lower_draw_ops(draw_ops);
+
+    let surface = PdfSurface::new(page.width, page.height, output_path)?;
+    let ctx = Context::new(&surface)?;
+
+    execute_render_ops(&ctx, &render_ops)?;
+
+    surface.finish();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +300,74 @@ mod tests {
                 y2: 100.0,
             }]
         );
+    }
+
+    #[test]
+    fn renders_basic_pdf() {
+        use crate::parser::{DrawOp, NumberValue, Page};
+        use std::fs;
+
+        let page = Page {
+            width: 200.0,
+            height: 200.0,
+        };
+
+        let draw_ops = vec![
+            DrawOp::SetRgb {
+                r: NumberValue::Literal(1.0),
+                g: NumberValue::Literal(1.0),
+                b: NumberValue::Literal(1.0),
+            },
+            DrawOp::RectPath {
+                x: NumberValue::Literal(0.0),
+                y: NumberValue::Literal(0.0),
+                width: NumberValue::Literal(200.0),
+                height: NumberValue::Literal(200.0),
+            },
+            DrawOp::Fill,
+            DrawOp::SetRgb {
+                r: NumberValue::Literal(1.0),
+                g: NumberValue::Literal(0.0),
+                b: NumberValue::Literal(0.0),
+            },
+            DrawOp::RectPath {
+                x: NumberValue::Literal(20.0),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(80.0),
+                height: NumberValue::Literal(60.0),
+            },
+            DrawOp::Fill,
+            DrawOp::SetRgb {
+                r: NumberValue::Literal(0.0),
+                g: NumberValue::Literal(0.0),
+                b: NumberValue::Literal(0.0),
+            },
+            DrawOp::SetStrokeWidth {
+                width: NumberValue::Literal(2.0),
+            },
+            DrawOp::RectPath {
+                x: NumberValue::Literal(20.0),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(80.0),
+                height: NumberValue::Literal(60.0),
+            },
+            DrawOp::Stroke,
+            DrawOp::LinePath {
+                x1: NumberValue::Literal(0.0),
+                y1: NumberValue::Literal(0.0),
+                x2: NumberValue::Literal(200.0),
+                y2: NumberValue::Literal(200.0),
+            },
+            DrawOp::Stroke,
+        ];
+
+        let output_path = std::env::temp_dir().join("marmot_basic_render_test.pdf");
+
+        render_pdf(&page, &draw_ops, &output_path).unwrap();
+
+        let metadata = fs::metadata(&output_path).unwrap();
+        assert!(metadata.len() > 0);
+
+        let _ = fs::remove_file(output_path);
     }
 }
