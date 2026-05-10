@@ -1,9 +1,16 @@
 mod lexer;
 mod parser;
-use lexer::Lexer;
-use anyhow::{Result, bail};
+mod validator;
+
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgMatches, Command};
-use std::path::{Path, PathBuf};
+use serde_json::Value;
+use std::{
+    fs::read_to_string,
+    path::{Path, PathBuf},
+};
+
+use crate::{lexer::Lexer, parser::Parser, validator::validate_data};
 
 struct CheckArgs {
     template_file: PathBuf,
@@ -45,72 +52,8 @@ fn main() -> Result<()> {
 
     match matches.subcommand() {
         Some(("check", sub_matches)) => {
-            let _args = parse_check_args(sub_matches)?;
-            let source = r#"
-%!PSL 0.1
-
-page 612 792
-
-slots begin
-  product_name text required
-  base_price text required
-  sale_price text required
-  buy int required
-  get int required
-end
-
-fonts begin
-  helvetica "fonts/Helvetica.ttf"
-  helvetica_bold "fonts/Helvetica-Bold.ttf"
-end
-
-assets begin
-  logo image "assets/logo.png"
-  badge image "assets/logo.png"
-end
-
-draw begin
-  % Background and border
-  1 1 1 rgb
-  0 0 612 792 rect fill
-
-  1 0 0 rgb
-  72 72 468 648 rect stroke
-
-  % Embedded image
-  logo 420 40 120 60 image contain
-
-  % Product name
-  helvetica_bold font
-  28 fontsize
-  center align
-  middle valign
-  0 0 0 1 cmyk
-  $(product_name) 72 100 468 80 textbox
-
-  % Offer
-  helvetica font
-  64 fontsize
-  (BUY ) $(buy) ( GET ) $(get) 4 concat 72 240 468 100 textbox % output: "BUY 2 GET 1"
-
-  % Price
-  helvetica_bold font
-  96 fontsize
-  0.5 grey
-  $(sale_price) 72 380 468 130 textbox
-end
-            "#;
-            let mut lexer = Lexer::new(source);
-            match lexer.tokenize() {
-                Ok(tokens) => {
-                    for token in tokens {
-                        println!("{token:?}");
-                    }
-                }
-                Err(err) => {
-                    eprintln!("Lexer error: {err:?}");
-                }
-            }
+            let args = parse_check_args(sub_matches)?;
+            check(args)?;
         }
         Some(("render", sub_matches)) => {
             let _args = parse_render_args(sub_matches)?;
@@ -120,6 +63,40 @@ end
     };
 
     Ok(())
+}
+
+fn check(args: CheckArgs) -> Result<()> {
+    let template_source = read_to_string(&args.template_file)
+        .with_context(|| format!("failed to read template: {}", args.template_file.display()))?;
+
+    let mut lexer = Lexer::new(&template_source);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
+
+    let mut parser = Parser::new(tokens);
+    let template = parser
+        .parse_template()
+        .map_err(|err| anyhow!("failed to parse template: {err:?}"))?;
+
+    let data_source = read_to_string(&args.data_file)
+        .with_context(|| format!("failed to read data: {}", args.data_file.display()))?;
+
+    let data: Value = serde_json::from_str(&data_source)
+        .with_context(|| format!("failed to parse JSON: {}", args.data_file.display()))?;
+
+    match validate_data(&template, &data) {
+        Ok(()) => {
+            println!("OK");
+            Ok(())
+        }
+        Err(errors) => {
+            for error in errors {
+                eprintln!("validation error: {error:?}");
+            }
+            bail!("data does not match template slots")
+        }
+    }
 }
 
 fn parse_check_args(matches: &ArgMatches) -> Result<CheckArgs> {

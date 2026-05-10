@@ -1,1 +1,8 @@
-{}
+{
+    "product_name": "BANANA",
+    "base_price": 0.99,
+    "sale_price": 0.69,
+    "buy": 2,
+    "get": 2,
+    "country": "USA"
+}

@@ -3,50 +3,16 @@
 page 612 792
 
 slots begin
-  product_name text required
-  base_price text required
-  sale_price text required
+  product_name string required
+  base_price decimal
+  sale_price decimal required
   buy int required
   get int required
 end
 
-fonts begin
-  helvetica "fonts/Helvetica.ttf"
-  helvetica_bold "fonts/Helvetica-Bold.ttf"
-end
-
-assets begin
-  logo image "assets/logo.png"
-  badge image "assets/logo.png"
-end
-
 draw begin
-  % Background and border
   1 1 1 rgb
   0 0 612 792 rect fill
 
-  1 0 0 rgb
-  72 72 468 648 rect stroke
-
-  % Embedded image
-  logo 420 40 120 60 image contain
-
-  % Product name
-  helvetica_bold font
-  28 fontsize
-  center align
-  middle valign
-  0 0 0 1 cmyk
   $(product_name) 72 100 468 80 textbox
-
-  % Offer
-  helvetica font
-  64 fontsize
-  (BUY $(buy) GET $(get)) 72 240 468 100 textbox
-
-  % Price
-  helvetica_bold font
-  96 fontsize
-  0.5 grey
-  $(sale_price) 72 380 468 130 textbox
 end
