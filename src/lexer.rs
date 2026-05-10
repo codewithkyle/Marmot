@@ -66,6 +66,70 @@ impl<'a> Lexer<'a> {
         Some(ch)
     }
 
+    fn is_word_char(ch: char) -> bool {
+        return ch.is_ascii() && (ch.is_ascii_alphanumeric() || ch == '_');
+    }
+
+    fn consume_word(&mut self) -> Result<String, LexError> {
+        let mut result = String::new();
+        while let Some(ch) = self.peek() {
+            if Self::is_word_char(ch) {
+                result.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(result)
+    }
+
+    fn consume_number(&mut self) -> Result<f64, LexError> {
+        let mut result = String::new();
+        let mut has_decimal = false;
+        let line = self.line;
+        let column = self.column;
+        while let Some(ch) = self.peek() {
+            match ch {
+                c if c.is_whitespace() || !c.is_ascii() => {
+                    break;
+                }
+                c if c.is_ascii_digit() => {
+                    result.push(ch);
+                    self.advance();
+                }
+                c if c == '.' => {
+                    result.push(ch);
+                    if has_decimal {
+                        return Err(LexError::InvalidNumber {
+                            value: result,
+                            line,
+                            column,
+                        });
+                    }
+                    has_decimal = true;
+                    self.advance();
+                }
+                c if !c.is_ascii_digit() => {
+                    result.push(ch);
+                    return Err(LexError::InvalidNumber {
+                        value: result,
+                        line,
+                        column,
+                    });
+                }
+                _ => {
+                    return Err(LexError::UnknownCharacter { ch, line, column });
+                }
+            }
+        }
+        let value = result.parse::<f64>().map_err(|_| LexError::InvalidNumber {
+            value: result.clone(),
+            line: line,
+            column: column,
+        })?;
+        Ok(value)
+    }
+
     pub fn tokenize(&mut self) -> Result<Vec<Token>, LexError> {
         let mut tokens = Vec::new();
 
@@ -77,22 +141,26 @@ impl<'a> Lexer<'a> {
                 c if c.is_whitespace() => {
                     self.advance();
                 }
-                c if c.is_ascii_alphabetic() => {
-                    tokens.push(Token {
-                        kind: TokenKind::Word(c.to_string()),
-                        line,
-                        column,
-                    });
-                    self.advance();
-                }
-                c if c.is_ascii_digit() => {
-                    tokens.push(Token {
-                        kind: TokenKind::Number(c.to_digit(10).unwrap() as f64),
-                        line,
-                        column,
-                    });
-                    self.advance();
-                }
+                c if c.is_ascii_digit() => match self.consume_number() {
+                    Ok(value) => {
+                        tokens.push(Token {
+                            kind: TokenKind::Number(value),
+                            line,
+                            column,
+                        });
+                    }
+                    Err(err) => return Err(err),
+                },
+                _c if Self::is_word_char(ch) => match self.consume_word() {
+                    Ok(value) => {
+                        tokens.push(Token {
+                            kind: TokenKind::Word(value.to_string()),
+                            line,
+                            column,
+                        });
+                    }
+                    Err(err) => return Err(err),
+                },
                 _ => {
                     return Err(LexError::UnknownCharacter { ch, line, column });
                 }
