@@ -84,6 +84,7 @@ mod tests {
             },
             slots,
             draw: Vec::new(),
+            fonts: Vec::new(),
         }
     }
 

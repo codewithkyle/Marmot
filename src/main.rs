@@ -1,19 +1,23 @@
 mod lexer;
+mod package;
 mod parser;
 mod renderer;
 mod validator;
-mod package;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     fs::read_to_string,
     path::{Path, PathBuf},
 };
 
 use crate::{
-    lexer::Lexer, package::{MarmotPackage, PackageBuilderOptions, create_package}, parser::Parser, renderer::render_pdf,
+    lexer::Lexer,
+    package::{MarmotPackage, PackageBuilderOptions, create_package},
+    parser::Parser,
+    renderer::{RenderContext, render_pdf},
     validator::validate_data,
 };
 
@@ -159,11 +163,25 @@ fn render(args: RenderArgs) -> Result<()> {
         None
     };
 
+    let font_map = template
+        .fonts
+        .iter()
+        .map(|font| {
+            let path = package.resolve_path(&font.path)?;
+            Ok((font.name.clone(), path))
+        })
+        .collect::<Result<HashMap<_, _>>>()?;
+
+    let render_context = RenderContext {
+        fonts: font_map,
+    };
+
     render_pdf(
         &template.page,
         &template.draw,
         &args.output_file,
         data.as_ref(),
+        &render_context,
     )
     .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
 

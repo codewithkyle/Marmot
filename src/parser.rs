@@ -10,6 +10,13 @@ pub struct Template {
     pub page: Page,
     pub slots: Vec<SlotDecl>,
     pub draw: Vec<DrawOp>,
+    pub fonts: Vec<FontDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontDecl {
+    pub name: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +203,11 @@ pub enum ParseError {
         line: usize,
         column: usize,
     },
+    ExpectedString {
+        found: TokenKind,
+        line: usize,
+        column: usize,
+    },
     ExpectedAnyWord {
         found: TokenKind,
         line: usize,
@@ -228,6 +240,8 @@ impl Parser {
         let page = self.parse_page()?;
 
         let slots = self.parse_optional_slots()?;
+        let fonts = self.parse_optional_fonts()?;
+
         let slot_lookup = Self::build_slot_lookup(&slots);
 
         let draw = self.parse_draw(&slot_lookup)?;
@@ -239,6 +253,7 @@ impl Parser {
             page,
             slots,
             draw,
+            fonts,
         })
     }
 
@@ -283,6 +298,19 @@ impl Parser {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn expect_string(&mut self) -> Result<String, ParseError> {
+        let token = self.advance();
+
+        match &token.kind {
+            TokenKind::String(value) => Ok(value.clone()),
+            found => Err(ParseError::ExpectedString {
+                found: found.clone(),
+                line: token.line,
+                column: token.column,
+            }),
         }
     }
 
@@ -508,7 +536,9 @@ impl Parser {
                 TokenKind::Word(word) if LineBreakMode::from_word(word).is_some() => {
                     let break_mode = LineBreakMode::from_word(word).unwrap();
                     self.expect_word("wrap")?;
-                    ops.push(DrawOp::SetLineBreakMode { line_break: break_mode });
+                    ops.push(DrawOp::SetLineBreakMode {
+                        line_break: break_mode,
+                    });
                 }
                 TokenKind::Word(word) if TextFit::from_word(word).is_some() => {
                     let fit = TextFit::from_word(word).unwrap();
@@ -673,6 +703,42 @@ impl Parser {
 
         self.expect_word("end")?;
         Ok(ops)
+    }
+
+    fn parse_optional_fonts(&mut self) -> Result<Vec<FontDecl>, ParseError> {
+        if !self.check_word("fonts") {
+            return Ok(Vec::new());
+        }
+
+        self.parse_fonts()
+    }
+
+    fn parse_font_decl(&mut self) -> Result<FontDecl, ParseError> {
+        let name = self.expect_any_word()?;
+        let path = self.expect_string()?;
+
+        Ok(FontDecl { name, path })
+    }
+
+    fn parse_fonts(&mut self) -> Result<Vec<FontDecl>, ParseError> {
+        self.expect_word("fonts")?;
+        self.expect_word("begin")?;
+
+        let mut fonts = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "fonts block".to_string(),
+                });
+            }
+
+            let font = self.parse_font_decl()?;
+            fonts.push(font);
+        }
+
+        self.expect_word("end")?;
+        Ok(fonts)
     }
 
     fn parse_optional_slots(&mut self) -> Result<Vec<SlotDecl>, ParseError> {
@@ -1391,6 +1457,70 @@ end
                 },
                 DrawOp::Stroke,
             ]
+        );
+    }
+
+    #[test]
+    fn parses_fonts_block() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+fonts begin
+  helvetica "fonts/Helvetica.ttf"
+  helvetica_bold "fonts/Helvetica-Bold.ttf"
+end
+
+draw begin
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let template = parser.parse_template().unwrap();
+
+        assert_eq!(
+            template.fonts,
+            vec![
+                FontDecl {
+                    name: "helvetica".to_string(),
+                    path: "fonts/Helvetica.ttf".to_string(),
+                },
+                FontDecl {
+                    name: "helvetica_bold".to_string(),
+                    path: "fonts/Helvetica-Bold.ttf".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_when_font_path_is_missing() {
+        let source = r#"%!PSL 0.1
+page 612 792
+
+fonts begin
+  helvetica
+end
+
+draw begin
+end
+"#;
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+
+        let mut parser = Parser::new(tokens);
+        let err = parser.parse_template().unwrap_err();
+
+        assert_eq!(
+            err,
+            ParseError::ExpectedString {
+                found: TokenKind::Word("end".to_string()),
+                line: 6,
+                column: 1,
+            }
         );
     }
 }

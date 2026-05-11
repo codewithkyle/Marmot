@@ -49,7 +49,7 @@ draw begin
   logo 420 40 120 60 image contain
 
   % Product name
-  helvetica_bold font
+  $(helvetica_bold) font
   28 fontsize
   center align
   middle valign

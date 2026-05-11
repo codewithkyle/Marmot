@@ -1,9 +1,13 @@
-use std::path::Path;
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
+
+pub struct RenderContext {
+    pub fonts: HashMap<String, PathBuf>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -619,6 +623,7 @@ pub fn render_pdf(
     draw_ops: &[DrawOp],
     output_path: &Path,
     data: Option<&Value>,
+    context: &RenderContext
 ) -> Result<(), RenderError> {
     let render_ops = lower_draw_ops(draw_ops, data)?;
 
@@ -776,8 +781,12 @@ mod tests {
 
         let output_path = std::env::temp_dir().join("marmot_basic_render_test.pdf");
 
+        let render_context = RenderContext {
+            fonts: HashMap::<String,PathBuf>::new(),
+        };
+
         let data: Option<&Value> = None;
-        render_pdf(&page, &draw_ops, &output_path, data).unwrap();
+        render_pdf(&page, &draw_ops, &output_path, data, &render_context).unwrap();
 
         let metadata = fs::metadata(&output_path).unwrap();
         assert!(metadata.len() > 0);
@@ -1049,7 +1058,11 @@ mod tests {
 
         let output_path = std::env::temp_dir().join("marmot_text_render_test.pdf");
 
-        render_pdf(&page, &draw_ops, &output_path, None).unwrap();
+        let render_context = RenderContext {
+            fonts: HashMap::<String,PathBuf>::new(),
+        };
+
+        render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
         let metadata = fs::metadata(&output_path).unwrap();
         assert!(metadata.len() > 0);

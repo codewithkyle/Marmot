@@ -3,7 +3,7 @@ use std::{
     collections::HashSet,
     fs::{File, create_dir_all, read_to_string},
     io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
@@ -38,6 +38,33 @@ impl MarmotPackage {
     pub fn read_template_source(&self) -> Result<String> {
         read_to_string(self.template_path())
             .with_context(|| format!("failed to read {}", self.template_path().display()))
+    }
+
+    pub fn resolve_path(&self, package_relative_path: &str) -> Result<PathBuf> {
+        let relative = Path::new(package_relative_path);
+
+        if relative.is_absolute() {
+            bail!("package path must be relative: {package_relative_path}");
+        }
+
+        for component in relative.components() {
+            match component {
+                Component::Normal(_) => {}
+                _ => bail!("invalid package path: {package_relative_path}"),
+            }
+        }
+
+        let resolved = self.root.join(relative);
+
+        if !resolved.exists() {
+            bail!("package file does not exist: {package_relative_path}");
+        }
+
+        if !resolved.is_file() {
+            bail!("package path is not a file: {package_relative_path}");
+        }
+
+        Ok(resolved)
     }
 
     fn ensure_template_exists(&self) -> Result<()> {
