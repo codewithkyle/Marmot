@@ -1,12 +1,28 @@
-use std::{collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
 
+#[derive(Debug, Clone, Default)]
 pub struct RenderContext {
-    pub fonts: HashMap<String, PathBuf>,
+    pub fonts: HashMap<String, RegisteredFont>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegisteredFont {
+    pub path: PathBuf,
+    pub family_name: String,
+}
+
+impl RenderContext {
+    pub fn resolve_font(&self, name: &str) -> Option<&RegisteredFont> {
+        self.fonts.get(name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,9 +191,15 @@ impl TextFit {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum CurrentFont {
+    System(String),
+    Packaged { alias: String, font: RegisteredFont },
+}
+
 #[derive(Debug, Clone)]
 struct RenderState {
-    font_family: String,
+    font: CurrentFont,
     font_size: f64,
     text_align: TextAlign,
     vertical_align: VerticalAlign,
@@ -191,7 +213,7 @@ struct RenderState {
 impl Default for RenderState {
     fn default() -> Self {
         Self {
-            font_family: "Sans".to_string(),
+            font: CurrentFont::System("Sans".to_string()),
             font_size: 12.0,
             text_align: TextAlign::Left,
             vertical_align: VerticalAlign::Top,
@@ -247,7 +269,9 @@ pub fn lower_draw_ops(
     for draw_op in draw_ops {
         match draw_op {
             DrawOp::SetFontFamily { font } => {
-                render_ops.push(RenderOp::SetFontFamily { font: eval_text(font, data)? });
+                render_ops.push(RenderOp::SetFontFamily {
+                    font: eval_text(font, data)?,
+                });
             }
             DrawOp::SetTextFitMaxSize { max } => {
                 render_ops.push(RenderOp::SetTextFitMaxSize {
@@ -382,6 +406,13 @@ fn to_pango_units(value: f64) -> i32 {
     (value * pango::SCALE as f64) as i32
 }
 
+fn current_font_description_name(font: &CurrentFont) -> &str {
+    match font {
+        CurrentFont::System(name) => name,
+        CurrentFont::Packaged { font, .. } => &font.family_name,
+    }
+}
+
 fn configure_text_layout(
     layout: &pango::Layout,
     state: &RenderState,
@@ -392,7 +423,8 @@ fn configure_text_layout(
 ) {
     layout.set_text(text);
 
-    let mut font = FontDescription::from_string(&state.font_family);
+    let font_name = current_font_description_name(&state.font);
+    let mut font = FontDescription::from_string(font_name);
     font.set_size(to_pango_units(font_size));
     layout.set_font_description(Some(&font));
 
@@ -545,13 +577,27 @@ fn render_textbox(
     Ok(())
 }
 
-fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), RenderError> {
+fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont {
+    match context.resolve_font(requested) {
+        Some(font) => CurrentFont::Packaged {
+            alias: requested.to_string(),
+            font: font.clone(),
+        },
+        None => CurrentFont::System(requested.to_string()),
+    }
+}
+
+fn execute_render_ops(
+    ctx: &Context,
+    render_ops: &[RenderOp],
+    context: &RenderContext,
+) -> Result<(), RenderError> {
     let mut state = RenderState::default();
 
     for op in render_ops {
         match op {
             RenderOp::SetFontFamily { font } => {
-                state.font_family = font.clone();
+                state.font = resolve_current_font(context, font);
             }
             RenderOp::SetTextFitMaxSize { max } => {
                 state.text_fit_max_size = *max;
@@ -623,14 +669,14 @@ pub fn render_pdf(
     draw_ops: &[DrawOp],
     output_path: &Path,
     data: Option<&Value>,
-    context: &RenderContext
+    context: &RenderContext,
 ) -> Result<(), RenderError> {
     let render_ops = lower_draw_ops(draw_ops, data)?;
 
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
 
-    execute_render_ops(&ctx, &render_ops)?;
+    execute_render_ops(&ctx, &render_ops, context)?;
 
     surface.finish();
 
@@ -782,7 +828,7 @@ mod tests {
         let output_path = std::env::temp_dir().join("marmot_basic_render_test.pdf");
 
         let render_context = RenderContext {
-            fonts: HashMap::<String,PathBuf>::new(),
+            fonts: HashMap::<String, RegisteredFont>::new(),
         };
 
         let data: Option<&Value> = None;
@@ -1059,7 +1105,7 @@ mod tests {
         let output_path = std::env::temp_dir().join("marmot_text_render_test.pdf");
 
         let render_context = RenderContext {
-            fonts: HashMap::<String,PathBuf>::new(),
+            fonts: HashMap::<String, RegisteredFont>::new(),
         };
 
         render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
@@ -1068,5 +1114,52 @@ mod tests {
         assert!(metadata.len() > 0);
 
         let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn resolves_declared_font_as_registered_packaged_font() {
+        let registered = RegisteredFont {
+            path: PathBuf::from("/tmp/package/fonts/Helvetica-Bold.ttf"),
+            family_name: "Helvetica Bold".to_string(),
+        };
+
+        let mut fonts = HashMap::new();
+        fonts.insert("helvetica_bold".to_string(), registered.clone());
+
+        let context = RenderContext { fonts };
+
+        let font = resolve_current_font(&context, "helvetica_bold");
+
+        assert_eq!(
+            font,
+            CurrentFont::Packaged {
+                alias: "helvetica_bold".to_string(),
+                font: registered,
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_unknown_font_as_system_font() {
+        let context = RenderContext {
+            fonts: HashMap::new(),
+        };
+
+        let font = resolve_current_font(&context, "Sans");
+
+        assert_eq!(font, CurrentFont::System("Sans".to_string()));
+    }
+
+    #[test]
+    fn packaged_font_uses_registered_family_name_for_pango() {
+        let font = CurrentFont::Packaged {
+            alias: "helvetica_bold".to_string(),
+            font: RegisteredFont {
+                path: PathBuf::from("/tmp/package/fonts/Helvetica-Bold.ttf"),
+                family_name: "Helvetica Bold".to_string(),
+            },
+        };
+
+        assert_eq!(current_font_description_name(&font), "Helvetica Bold");
     }
 }

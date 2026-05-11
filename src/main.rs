@@ -17,7 +17,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::Parser,
-    renderer::{RenderContext, render_pdf},
+    renderer::{RegisteredFont, RenderContext, render_pdf},
     validator::validate_data,
 };
 
@@ -168,13 +168,17 @@ fn render(args: RenderArgs) -> Result<()> {
         .iter()
         .map(|font| {
             let path = package.resolve_path(&font.path)?;
-            Ok((font.name.clone(), path))
+            Ok((
+                font.name.clone(),
+                RegisteredFont {
+                    path: path,
+                    family_name: font.name.clone(),
+                },
+            ))
         })
         .collect::<Result<HashMap<_, _>>>()?;
 
-    let render_context = RenderContext {
-        fonts: font_map,
-    };
+    let render_context = RenderContext { fonts: font_map };
 
     render_pdf(
         &template.page,
