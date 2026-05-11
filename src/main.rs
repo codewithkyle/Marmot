@@ -103,7 +103,7 @@ fn main() -> Result<()> {
         }
         Some(("pack", sub_matches)) => {
             let args = parse_pack_args(sub_matches)?;
-            pack(args);
+            pack(args)?;
         }
         _ => unreachable!("Exhausted list of subcommands."),
     };

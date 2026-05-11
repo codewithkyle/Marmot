@@ -482,9 +482,6 @@ fn fitted_font_size(
     match state.text_fit {
         TextFit::Fixed => state.font_size,
         TextFit::ShrinkToFit => {
-            if layout_fits(layout, width, height) {
-                return state.font_size;
-            }
             let max = state.font_size.min(state.text_fit_max_size);
             find_largest_fitting_font_size(
                 layout,
