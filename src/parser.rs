@@ -291,7 +291,7 @@ impl Parser {
         }
     }
 
-    fn safe_expect_word(&mut self, expected: &str) -> bool {
+    fn try_consume_word(&mut self, expected: &str) -> bool {
         match &self.peek().kind {
             TokenKind::Word(value) if value == expected => {
                 self.advance();
@@ -772,7 +772,7 @@ impl Parser {
     fn parse_slot_decl(&mut self) -> Result<SlotDecl, ParseError> {
         let name = self.expect_any_word()?;
         let ty_word = self.expect_any_word()?;
-        let is_required = self.safe_expect_word("required");
+        let is_required = self.try_consume_word("required");
 
         let ty = match ty_word.as_str() {
             "string" => SlotType::String,
