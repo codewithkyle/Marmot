@@ -190,3 +190,166 @@ end
     );
     assert_eq!(tokens.last().unwrap().kind, TokenKind::Eof);
 }
+
+#[test]
+fn lexes_double_quoted_string() {
+    let mut lexer = Lexer::new("\"fonts/Helvetica.ttf\"");
+    let tokens = lexer.tokenize().unwrap();
+
+    assert_eq!(
+        tokens[0].kind,
+        TokenKind::String("fonts/Helvetica.ttf".to_string())
+    );
+}
+
+#[test]
+fn lexes_escaped_characters_in_double_quoted_string() {
+    let mut lexer = Lexer::new("\"line\\ncol\\tend\"");
+    let tokens = lexer.tokenize().unwrap();
+
+    assert_eq!(tokens[0].kind, TokenKind::String("line\ncol\tend".to_string()));
+}
+
+#[test]
+fn unknown_escape_char_is_passed_through() {
+    let mut lexer = Lexer::new(r#""a\z""#);
+    let tokens = lexer.tokenize().unwrap();
+
+    assert_eq!(tokens[0].kind, TokenKind::String("az".to_string()));
+}
+
+#[test]
+fn errors_on_number_with_trailing_dot() {
+    let mut lexer = Lexer::new("12.");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::InvalidNumber {
+            value: "12.".to_string(),
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_number_with_multiple_dots() {
+    let mut lexer = Lexer::new("1.2.3");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::InvalidNumber {
+            value: "1.2.".to_string(),
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_negative_number_literal() {
+    let mut lexer = Lexer::new("-1");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::UnknownCharacter {
+            ch: '-',
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_dot_prefixed_number_literal() {
+    let mut lexer = Lexer::new(".5");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::UnknownCharacter {
+            ch: '.',
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_scientific_notation_number_literal() {
+    let mut lexer = Lexer::new("1e3");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::InvalidNumber {
+            value: "1e".to_string(),
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn lexes_slot_with_digits_and_underscores() {
+    let mut lexer = Lexer::new("$(product_1_name)");
+    let tokens = lexer.tokenize().unwrap();
+
+    assert_eq!(
+        tokens[0].kind,
+        TokenKind::Slot("product_1_name".to_string())
+    );
+}
+
+#[test]
+fn errors_on_slot_starting_with_digit() {
+    let mut lexer = Lexer::new("$(1name)");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(err, LexError::InvalidSlotVariable { line: 1, column: 1 });
+}
+
+#[test]
+fn errors_on_slot_containing_dash() {
+    let mut lexer = Lexer::new("$(product-name)");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(err, LexError::InvalidSlotVariable { line: 1, column: 1 });
+}
+
+#[test]
+fn errors_on_unterminated_slot_across_newline() {
+    let mut lexer = Lexer::new("$(product\nname)");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::UnterminatedSlotVariable { line: 1, column: 1 }
+    );
+}
+
+#[test]
+fn reports_line_and_column_for_multiline_unknown_character() {
+    let mut lexer = Lexer::new("page\n@");
+    let err = lexer.tokenize().unwrap_err();
+
+    assert_eq!(
+        err,
+        LexError::UnknownCharacter {
+            ch: '@',
+            line: 2,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn trims_comment_whitespace() {
+    let mut lexer = Lexer::new("%   hello   ");
+    let tokens = lexer.tokenize().unwrap();
+
+    assert_eq!(tokens[0].kind, TokenKind::Comment("hello".to_string()));
+}

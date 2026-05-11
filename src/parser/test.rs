@@ -696,3 +696,427 @@ end
         }
     );
 }
+
+#[test]
+fn errors_on_invalid_header_comment() {
+    let source = r#"% hello
+page 612 792
+draw begin
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::InvalidHeader {
+            value: "hello".to_string(),
+            line: 1,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_when_page_keyword_is_wrong() {
+    let source = r#"%!PSL 0.1
+size 612 792
+draw begin
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedWord {
+            expected: "page".to_string(),
+            found: TokenKind::Word("size".to_string()),
+            line: 2,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_when_draw_begin_keyword_is_missing() {
+    let source = r#"%!PSL 0.1
+page 612 792
+draw start
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedWord {
+            expected: "begin".to_string(),
+            found: TokenKind::Word("start".to_string()),
+            line: 3,
+            column: 6,
+        }
+    );
+}
+
+#[test]
+fn errors_on_unexpected_eof_in_draw_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+draw begin
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedEof {
+            context: "draw block".to_string(),
+        }
+    );
+}
+
+#[test]
+fn errors_on_unexpected_eof_in_slots_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+slots begin
+  product_name string
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedEof {
+            context: "slots block".to_string(),
+        }
+    );
+}
+
+#[test]
+fn errors_on_unexpected_eof_in_fonts_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+fonts begin
+  helvetica "fonts/Helvetica.ttf"
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedEof {
+            context: "fonts block".to_string(),
+        }
+    );
+}
+
+#[test]
+fn errors_when_slot_name_is_not_a_word() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+slots begin
+  123 string
+end
+
+draw begin
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedAnyWord {
+            found: TokenKind::Number(123.0),
+            line: 5,
+            column: 3,
+        }
+    );
+}
+
+#[test]
+fn errors_when_font_name_is_not_a_word() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+fonts begin
+  "helvetica" "fonts/Helvetica.ttf"
+end
+
+draw begin
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedAnyWord {
+            found: TokenKind::String("helvetica".to_string()),
+            line: 5,
+            column: 3,
+        }
+    );
+}
+
+#[test]
+fn errors_on_unexpected_word_in_draw_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+banana
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedDrawToken {
+            found: TokenKind::Word("banana".to_string()),
+            line: 5,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_fill_without_current_path() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+fill
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::NoCurrentPath {
+            operator: "fill".to_string(),
+            line: 5,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_stroke_without_current_path() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+stroke
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::NoCurrentPath {
+            operator: "stroke".to_string(),
+            line: 5,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_on_filling_line_path() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+0 0 10 10 line fill
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::CannotFillPath {
+            path: "line".to_string(),
+            line: 5,
+            column: 16,
+        }
+    );
+}
+
+#[test]
+fn errors_on_unpainted_path_before_new_path() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+0 0 10 10 rect 1 1 2 2 rect fill
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(err, ParseError::UnpaintedPath { line: 5, column: 24 });
+}
+
+#[test]
+fn errors_on_unpainted_path_at_end_of_draw_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+0 0 10 10 rect
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(err, ParseError::UnpaintedPath { line: 6, column: 1 });
+}
+
+#[test]
+fn errors_on_unused_stack_values_in_draw_block() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+1
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnusedStackValues {
+            count: 1,
+            line: 6,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn parses_draw_text_style_operators() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (Helvetica-Bold) font
+  12 fontsize
+  center align
+  middle valign
+  char wrap
+  fit textfit
+  8 textfitmin
+  40 textfitmax
+  (Hello) 10 20 200 40 textbox
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![
+            DrawOp::SetFontFamily {
+                font: TextValue::Literal("Helvetica-Bold".to_string()),
+            },
+            DrawOp::SetFontSize {
+                size: NumberValue::Literal(12.0),
+            },
+            DrawOp::SetTextAlignment {
+                align: TextAlign::Center,
+            },
+            DrawOp::SetVerticalAlignment {
+                align: VerticalAlign::Middle,
+            },
+            DrawOp::SetLineBreakMode {
+                line_break: LineBreakMode::Char,
+            },
+            DrawOp::SetTextFit { fit: TextFit::Fit },
+            DrawOp::SetTextFitMinSize {
+                min: NumberValue::Literal(8.0),
+            },
+            DrawOp::SetTextFitMaxSize {
+                max: NumberValue::Literal(40.0),
+            },
+            DrawOp::TextBox {
+                text: TextValue::Literal("Hello".to_string()),
+                x: NumberValue::Literal(10.0),
+                y: NumberValue::Literal(20.0),
+                width: NumberValue::Literal(200.0),
+                height: NumberValue::Literal(40.0),
+            },
+        ]
+    );
+}

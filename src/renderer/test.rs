@@ -477,3 +477,207 @@ fn packaged_font_uses_registered_family_name_for_pango() {
 
     assert_eq!(current_font_description_name(&font), "Helvetica Bold");
 }
+
+#[test]
+fn lowers_text_style_and_font_ops() {
+    let draw_ops = vec![
+        DrawOp::SetFontFamily {
+            font: TextValue::Literal("Helvetica-Bold".to_string()),
+        },
+        DrawOp::SetFontSize {
+            size: NumberValue::Literal(14.0),
+        },
+        DrawOp::SetTextAlignment {
+            align: TextAlign::Right,
+        },
+        DrawOp::SetVerticalAlignment {
+            align: VerticalAlign::Bottom,
+        },
+        DrawOp::SetLineBreakMode {
+            line_break: LineBreakMode::None,
+        },
+        DrawOp::SetTextFit {
+            fit: TextFit::ShrinkToFit,
+        },
+        DrawOp::SetTextFitMinSize {
+            min: NumberValue::Literal(8.0),
+        },
+        DrawOp::SetTextFitMaxSize {
+            max: NumberValue::Literal(24.0),
+        },
+    ];
+
+    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
+
+    assert_eq!(
+        render_ops,
+        vec![
+            RenderOp::SetFontFamily {
+                font: "Helvetica-Bold".to_string(),
+            },
+            RenderOp::SetFontSize { size: 14.0 },
+            RenderOp::SetTextAlignment {
+                align: TextAlign::Right,
+            },
+            RenderOp::SetVerticalAlignment {
+                align: VerticalAlign::Bottom,
+            },
+            RenderOp::SetLineBreakMode {
+                line_break: LineBreakMode::None,
+            },
+            RenderOp::SetTextFit {
+                fit: TextFit::ShrinkToFit,
+            },
+            RenderOp::SetTextFitMinSize { min: 8.0 },
+            RenderOp::SetTextFitMaxSize { max: 24.0 },
+        ]
+    );
+}
+
+#[test]
+fn lowers_slot_driven_style_values_from_json_data() {
+    let data = serde_json::json!({
+        "font": "Helvetica-Bold",
+        "r": 0.1,
+        "g": 0.2,
+        "b": 0.3,
+        "stroke": 2,
+        "size": 16,
+        "min": 9,
+        "max": 32
+    });
+
+    let draw_ops = vec![
+        DrawOp::SetFontFamily {
+            font: TextValue::Slot("font".to_string()),
+        },
+        DrawOp::SetRgb {
+            r: NumberValue::Slot("r".to_string()),
+            g: NumberValue::Slot("g".to_string()),
+            b: NumberValue::Slot("b".to_string()),
+        },
+        DrawOp::SetStrokeWidth {
+            width: NumberValue::Slot("stroke".to_string()),
+        },
+        DrawOp::SetFontSize {
+            size: NumberValue::Slot("size".to_string()),
+        },
+        DrawOp::SetTextFitMinSize {
+            min: NumberValue::Slot("min".to_string()),
+        },
+        DrawOp::SetTextFitMaxSize {
+            max: NumberValue::Slot("max".to_string()),
+        },
+    ];
+
+    let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
+
+    assert_eq!(
+        render_ops,
+        vec![
+            RenderOp::SetFontFamily {
+                font: "Helvetica-Bold".to_string(),
+            },
+            RenderOp::SetRgb {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+            },
+            RenderOp::SetStrokeWidth { width: 2.0 },
+            RenderOp::SetFontSize { size: 16.0 },
+            RenderOp::SetTextFitMinSize { min: 9.0 },
+            RenderOp::SetTextFitMaxSize { max: 32.0 },
+        ]
+    );
+}
+
+#[test]
+fn errors_when_text_slot_is_used_without_data() {
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Slot("product_name".to_string()),
+        x: NumberValue::Literal(20.0),
+        y: NumberValue::Literal(40.0),
+        width: NumberValue::Literal(160.0),
+        height: NumberValue::Literal(40.0),
+    }];
+
+    let err = lower_draw_ops(&draw_ops, None).unwrap_err();
+
+    assert!(matches!(
+        err,
+        RenderError::MissingData { slot } if slot == "product_name"
+    ));
+}
+
+#[test]
+fn errors_when_text_slot_field_is_missing() {
+    let data = serde_json::json!({
+        "other": "Coffee Beans"
+    });
+
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Slot("product_name".to_string()),
+        x: NumberValue::Literal(20.0),
+        y: NumberValue::Literal(40.0),
+        width: NumberValue::Literal(160.0),
+        height: NumberValue::Literal(40.0),
+    }];
+
+    let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+
+    assert!(matches!(
+        err,
+        RenderError::MissingSlot { slot } if slot == "product_name"
+    ));
+}
+
+#[test]
+#[should_panic(expected = "parser should prevent stroke without a current path")]
+fn panics_when_stroke_has_no_pending_path() {
+    let draw_ops = vec![DrawOp::Stroke];
+
+    let _ = lower_draw_ops(&draw_ops, None);
+}
+
+#[test]
+#[should_panic(expected = "parser should prevent fill without a current path")]
+fn panics_when_fill_has_no_pending_path() {
+    let draw_ops = vec![DrawOp::Fill];
+
+    let _ = lower_draw_ops(&draw_ops, None);
+}
+
+#[test]
+#[should_panic(expected = "parser should prevent filling a line")]
+fn panics_when_fill_is_applied_to_line() {
+    let draw_ops = vec![
+        DrawOp::LinePath {
+            x1: NumberValue::Literal(0.0),
+            y1: NumberValue::Literal(0.0),
+            x2: NumberValue::Literal(10.0),
+            y2: NumberValue::Literal(10.0),
+        },
+        DrawOp::Fill,
+    ];
+
+    let _ = lower_draw_ops(&draw_ops, None);
+}
+
+#[test]
+fn returns_cairo_error_for_invalid_output_path() {
+    use crate::parser::Page;
+
+    let page = Page {
+        width: 200.0,
+        height: 200.0,
+    };
+    let draw_ops = vec![];
+    let output_path = PathBuf::from("/definitely/missing/path/marmot-render-test.pdf");
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+    };
+
+    let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+
+    assert!(matches!(err, RenderError::Cairo(_)));
+}
