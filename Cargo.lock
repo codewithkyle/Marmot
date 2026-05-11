@@ -3,24 +3,6 @@
 version = 4
 
 [[package]]
-name = "Marmot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cairo-rs",
- "clap",
- "pango",
- "pangocairo",
- "pkg-config",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "ttf-parser",
- "zip",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -704,6 +686,24 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "marmot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cairo-rs",
+ "clap",
+ "pango",
+ "pangocairo",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "ttf-parser",
+ "zip",
 ]
 
 [[package]]
