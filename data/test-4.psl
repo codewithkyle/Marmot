@@ -6,5 +6,6 @@ draw begin
   0 0 300 120 rect fill
 
   0 0 0 rgb
+  8 fontsize
   (Hello Marmot) 20 40 260 40 textbox
 end

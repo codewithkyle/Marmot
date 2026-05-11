@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
@@ -14,6 +14,9 @@ pub enum RenderOp {
     },
     SetStrokeWidth {
         width: f64,
+    },
+    SetFontSize {
+        size: f64,
     },
     StrokeLine {
         x1: f64,
@@ -73,6 +76,41 @@ enum PendingPath {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LineBreakMode {
+    Word,
+    Char,
+    None,
+}
+
+#[derive(Debug, Clone)]
+struct RenderState {
+    font_family: String,
+    font_size: f64,
+    text_align: TextAlign,
+    line_break: LineBreakMode,
+    crop_text: bool,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            font_family: "Sans".to_string(),
+            font_size: 12.0,
+            text_align: TextAlign::Left,
+            line_break: LineBreakMode::Word,
+            crop_text: true,
+        }
+    }
+}
+
 fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderError> {
     match value {
         TextValue::Literal(text) => Ok(text.clone()),
@@ -115,6 +153,11 @@ pub fn lower_draw_ops(
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetFontSize { size } => {
+                render_ops.push(RenderOp::SetFontSize {
+                    size: eval_number(size, data)?,
+                });
+            }
             DrawOp::SetRgb { r, g, b } => {
                 render_ops.push(RenderOp::SetRgb {
                     r: eval_number(r, data)?,
@@ -146,7 +189,7 @@ pub fn lower_draw_ops(
                     y: eval_number(y, data)?,
                     width: eval_number(width, data)?,
                     height: eval_number(height, data)?,
-                });
+                })
             }
             DrawOp::Stroke => {
                 let path = pending_path
@@ -215,22 +258,62 @@ pub fn lower_draw_ops(
     Ok(render_ops)
 }
 
-fn render_textbox(ctx: &Context, text: &str, x: f64, y: f64, width: f64, height: f64) {
+fn to_pango_units(value: f64) -> i32 {
+    (value * pango::SCALE as f64) as i32
+}
+
+fn render_textbox(
+    ctx: &Context,
+    state: &RenderState,
+    text: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
     let layout = pangocairo::functions::create_layout(ctx);
     layout.set_text(text);
 
-    let font = FontDescription::from_string("Sans 24");
+    let mut font = FontDescription::from_string(&state.font_family);
+    font.set_size(to_pango_units(state.font_size));
     layout.set_font_description(Some(&font));
 
-    layout.set_width((width * pango::SCALE as f64) as i32);
-    layout.set_height((height * pango::SCALE as f64) as i32);
+    layout.set_width(to_pango_units(width));
+    layout.set_height(to_pango_units(height));
+
+    layout.set_alignment(match state.text_align {
+        TextAlign::Left => pango::Alignment::Left,
+        TextAlign::Center => pango::Alignment::Center,
+        TextAlign::Right => pango::Alignment::Right,
+    });
+
+    layout.set_wrap(match state.line_break {
+        LineBreakMode::Word => pango::WrapMode::Word,
+        LineBreakMode::Char => pango::WrapMode::Char,
+        LineBreakMode::None => pango::WrapMode::Word,
+    });
+    if state.line_break == LineBreakMode::None {
+        layout.set_single_paragraph_mode(true);
+    }
+
+    ctx.save()?;
+
+    if state.crop_text {
+        ctx.rectangle(x, y, width, height);
+        ctx.clip();
+    }
 
     ctx.move_to(x, y);
-
     pangocairo::functions::show_layout(ctx, &layout);
+
+    ctx.restore()?;
+
+    Ok(())
 }
 
 fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), RenderError> {
+    let mut state = RenderState::default();
+
     for op in render_ops {
         match op {
             RenderOp::SetRgb { r, g, b } => {
@@ -238,6 +321,9 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
             }
             RenderOp::SetStrokeWidth { width } => {
                 ctx.set_line_width(*width);
+            }
+            RenderOp::SetFontSize { size } => {
+                state.font_size = *size;
             }
             RenderOp::StrokeLine { x1, y1, x2, y2 } => {
                 ctx.move_to(*x1, *y1);
@@ -269,9 +355,8 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
                 width,
                 height,
             } => {
-                render_textbox(ctx, text, *x, *y, *width, *height);
+                render_textbox(ctx, &state, text, *x, *y, *width, *height)?;
             }
-            _ => todo!("execute render op"),
         }
     }
 

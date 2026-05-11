@@ -73,6 +73,9 @@ pub enum DrawOp {
         width: NumberValue,
         height: NumberValue,
     },
+    SetFontSize {
+        size: NumberValue,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -462,6 +465,12 @@ impl Parser {
                             stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
                         }
                     }
+                }
+                TokenKind::Word(word) if word == "fontsize" => {
+                    Self::require_stack(&stack, "fontsize", 1, token)?;
+                    let size = Self::pop_number(&mut stack, "fontsize", token)?;
+                    Self::validate_literal_positive(&size, "fontsize", "size", token)?;
+                    ops.push(DrawOp::SetFontSize { size });
                 }
                 TokenKind::Word(word) if word == "textbox" => {
                     Self::require_stack(&stack, "textbox", 5, token)?;
