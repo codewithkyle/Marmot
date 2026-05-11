@@ -1,6 +1,6 @@
 use crate::{
     lexer::{Token, TokenKind},
-    renderer::{TextAlign, VerticalAlign},
+    renderer::{LineBreakMode, TextAlign, VerticalAlign},
 };
 use std::collections::HashMap;
 
@@ -63,6 +63,9 @@ pub enum DrawOp {
     },
     SetVerticalAlignment {
         align: VerticalAlign,
+    },
+    SetLineBreakMode {
+        line_break: LineBreakMode,
     },
     LinePath {
         x1: NumberValue,
@@ -484,6 +487,11 @@ impl Parser {
                     let align = VerticalAlign::from_word(word).unwrap();
                     self.expect_word("valign")?;
                     ops.push(DrawOp::SetVerticalAlignment { align });
+                }
+                TokenKind::Word(word) if LineBreakMode::from_word(word).is_some() => {
+                    let break_mode = LineBreakMode::from_word(word).unwrap();
+                    self.expect_word("wrap")?;
+                    ops.push(DrawOp::SetLineBreakMode { line_break: break_mode });
                 }
                 TokenKind::Word(word) if word == "fontsize" => {
                     Self::require_stack(&stack, "fontsize", 1, token)?;

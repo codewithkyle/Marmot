@@ -24,6 +24,9 @@ pub enum RenderOp {
     SetVerticalAlignment {
         align: VerticalAlign,
     },
+    SetLineBreakMode {
+        line_break: LineBreakMode,
+    },
     StrokeLine {
         x1: f64,
         y1: f64,
@@ -125,6 +128,17 @@ pub enum LineBreakMode {
     None,
 }
 
+impl LineBreakMode {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "word" => Some(Self::Word),
+            "char" => Some(Self::Char),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct RenderState {
     font_family: String,
@@ -190,6 +204,9 @@ pub fn lower_draw_ops(
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetLineBreakMode { line_break } => {
+                render_ops.push(RenderOp::SetLineBreakMode { line_break: *line_break });
+            }
             DrawOp::SetVerticalAlignment { align } => {
                 render_ops.push(RenderOp::SetVerticalAlignment { align: *align });
             }
@@ -336,6 +353,7 @@ fn render_textbox(
         LineBreakMode::None => pango::WrapMode::Word,
     });
     if state.line_break == LineBreakMode::None {
+        layout.set_width(-1);
         layout.set_single_paragraph_mode(true);
     }
 
@@ -368,6 +386,9 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
 
     for op in render_ops {
         match op {
+            RenderOp::SetLineBreakMode { line_break } => {
+                state.line_break = *line_break;
+            }
             RenderOp::SetVerticalAlignment { align } => {
                 state.vertical_align = *align;
             }
