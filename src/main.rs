@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     fs::read_to_string,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, time::{Duration, Instant},
 };
 
 use crate::{
@@ -32,6 +32,7 @@ struct RenderArgs {
     package_file: PathBuf,
     data_file: Option<PathBuf>,
     output_file: PathBuf,
+    enable_timings: bool,
 }
 
 struct PackArgs {
@@ -65,7 +66,8 @@ fn main() -> Result<()> {
                 .about("Render a .marmot package with a data file")
                 .arg(Arg::new("package").required(true))
                 .arg(Arg::new("data"))
-                .arg(Arg::new("output").short('o').long("output").required(true)),
+                .arg(Arg::new("output").short('o').long("output").required(true))
+                .arg(Arg::new("timings").long("timings").action(ArgAction::SetTrue)),
         )
         .subcommand(
             Command::new("pack")
@@ -143,6 +145,9 @@ fn pack(args: PackArgs) -> Result<()> {
 }
 
 fn render(args: RenderArgs) -> Result<()> {
+    let total_start = Instant::now();
+    let prep_start = Instant::now();
+
     let package = MarmotPackage::open(&args.package_file)?;
     let template_source = package.read_template_source()?;
     let template = parse_template_source(&template_source)?;
@@ -167,6 +172,9 @@ fn render(args: RenderArgs) -> Result<()> {
 
     let render_context = build_render_context(&template, &package)?;
 
+    let prep = prep_start.elapsed();
+    let render_start = Instant::now();
+
     render_pdf(
         &template.page,
         &template.draw,
@@ -176,9 +184,22 @@ fn render(args: RenderArgs) -> Result<()> {
     )
     .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
 
+    let render = render_start.elapsed();
+    let total = total_start.elapsed();
+
     println!("wrote {}", args.output_file.display());
+    if args.enable_timings {
+        eprintln!("timings:");
+        eprintln!("    prep:    {}", format_duration(prep));
+        eprintln!("    render:  {}", format_duration(render));
+        eprintln!("    total:   {}", format_duration(total));
+    }
 
     Ok(())
+}
+
+fn format_duration(d: Duration) -> String {
+    format!("{:.3} ms", d.as_secs_f64() * 1000.0)
 }
 
 fn check(args: CheckArgs) -> Result<()> {
@@ -266,10 +287,13 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .expect("output is required")
         .into();
 
+    let enable_timings = matches.get_one::<bool>("timings").unwrap_or(&false);
+
     let args = RenderArgs {
         package_file,
         data_file,
         output_file,
+        enable_timings: *enable_timings,
     };
 
     if let Some(data_file) = &args.data_file {

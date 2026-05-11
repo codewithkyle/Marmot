@@ -60,7 +60,7 @@ Behavior:
 Render a `.marmot` package into a PDF.
 
 ```bash
-marmot render --output <output> <package> [data]
+marmot render [--timings] --output <output> <package> [data]
 ```
 
 Example with data:
@@ -75,17 +75,25 @@ Example without data:
 marmot render demo.marmot --output out.pdf
 ```
 
+Example with stage timings:
+
+```bash
+marmot render demo.marmot data/test-1.json --output out.pdf --timings
+```
+
 Behavior:
 
 - Loads and parses `template.psl` from package.
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
 - Renders to PDF at `--output`.
+- With `--timings`, prints elapsed time for `prep`, `render`, and `total`.
 
 Notes:
 
 - If template uses slot values in `draw`, rendering without `[data]` fails.
 - Current renderer output format is PDF.
+- `--timings` is intended for local profiling and benchmarking runs.
 
 ## `marmot pack`
 
