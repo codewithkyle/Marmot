@@ -9,9 +9,10 @@ draw begin
   20 40 260 40 rect fill
 
   0 0 0 rgb
-  12 fontsize
+  14 fontsize
   center align
   middle valign
   word wrap
-  (Hello Marmot. This is a very long string to test how line breaks work, or if they don't.) 20 40 260 40 textbox
+  grow textfit
+  (Hello Marmot) 20 40 260 40 textbox
 end

@@ -27,6 +27,15 @@ pub enum RenderOp {
     SetLineBreakMode {
         line_break: LineBreakMode,
     },
+    SetTextFit {
+        fit: TextFit,
+    },
+    SetTextFitMinSize {
+        min: f64,
+    },
+    SetTextFitMaxSize {
+        max: f64,
+    },
     StrokeLine {
         x1: f64,
         y1: f64,
@@ -139,6 +148,26 @@ impl LineBreakMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextFit {
+    Fixed,
+    ShrinkToFit,
+    GrowToFit,
+    Fit,
+}
+
+impl TextFit {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "fit" => Some(Self::Fit),
+            "fixed" => Some(Self::Fixed),
+            "shrink" => Some(Self::ShrinkToFit),
+            "grow" => Some(Self::GrowToFit),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct RenderState {
     font_family: String,
@@ -147,6 +176,9 @@ struct RenderState {
     vertical_align: VerticalAlign,
     line_break: LineBreakMode,
     crop_text: bool,
+    text_fit: TextFit,
+    text_fit_min_size: f64,
+    text_fit_max_size: f64,
 }
 
 impl Default for RenderState {
@@ -158,6 +190,9 @@ impl Default for RenderState {
             vertical_align: VerticalAlign::Top,
             line_break: LineBreakMode::Word,
             crop_text: true,
+            text_fit: TextFit::Fixed,
+            text_fit_min_size: 4.0,
+            text_fit_max_size: 96.0,
         }
     }
 }
@@ -204,8 +239,23 @@ pub fn lower_draw_ops(
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetTextFitMaxSize { max } => {
+                render_ops.push(RenderOp::SetTextFitMaxSize {
+                    max: eval_number(max, data)?,
+                });
+            }
+            DrawOp::SetTextFitMinSize { min } => {
+                render_ops.push(RenderOp::SetTextFitMinSize {
+                    min: eval_number(min, data)?,
+                });
+            }
+            DrawOp::SetTextFit { fit } => {
+                render_ops.push(RenderOp::SetTextFit { fit: *fit });
+            }
             DrawOp::SetLineBreakMode { line_break } => {
-                render_ops.push(RenderOp::SetLineBreakMode { line_break: *line_break });
+                render_ops.push(RenderOp::SetLineBreakMode {
+                    line_break: *line_break,
+                });
             }
             DrawOp::SetVerticalAlignment { align } => {
                 render_ops.push(RenderOp::SetVerticalAlignment { align: *align });
@@ -322,6 +372,129 @@ fn to_pango_units(value: f64) -> i32 {
     (value * pango::SCALE as f64) as i32
 }
 
+fn configure_text_layout(
+    layout: &pango::Layout,
+    state: &RenderState,
+    text: &str,
+    font_size: f64,
+    width: f64,
+    height: f64,
+) {
+    layout.set_text(text);
+
+    let mut font = FontDescription::from_string(&state.font_family);
+    font.set_size(to_pango_units(font_size));
+    layout.set_font_description(Some(&font));
+
+    layout.set_height(to_pango_units(height));
+
+    layout.set_alignment(match state.text_align {
+        TextAlign::Left => pango::Alignment::Left,
+        TextAlign::Center => pango::Alignment::Center,
+        TextAlign::Right => pango::Alignment::Right,
+    });
+
+    match state.line_break {
+        LineBreakMode::Word => {
+            layout.set_width(to_pango_units(width));
+            layout.set_wrap(pango::WrapMode::Word);
+            layout.set_single_paragraph_mode(false);
+        }
+        LineBreakMode::Char => {
+            layout.set_width(to_pango_units(width));
+            layout.set_wrap(pango::WrapMode::Char);
+            layout.set_single_paragraph_mode(false);
+        }
+        LineBreakMode::None => {
+            layout.set_width(-1);
+            layout.set_single_paragraph_mode(true);
+        }
+    }
+}
+
+fn layout_fits(layout: &pango::Layout, width: f64, height: f64) -> bool {
+    let (_, logical_rect) = layout.pixel_extents();
+    logical_rect.width() as f64 <= width && logical_rect.height() as f64 <= height
+}
+
+fn find_largest_fitting_font_size(
+    ctx: &Context,
+    state: &RenderState,
+    text: &str,
+    width: f64,
+    height: f64,
+    min_size: f64,
+    max_size: f64,
+) -> f64 {
+    if max_size < min_size {
+        return min_size;
+    }
+
+    let layout = pangocairo::functions::create_layout(ctx);
+    let mut low = min_size;
+    let mut high = max_size;
+    let mut best = min_size;
+
+    for _ in 0..12 {
+        let mid = (low + high) / 2.0;
+        configure_text_layout(&layout, state, text, mid, width, height);
+
+        if layout_fits(&layout, width, height) {
+            best = mid;
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    best
+}
+
+fn fitted_font_size(
+    ctx: &Context,
+    state: &RenderState,
+    text: &str,
+    width: f64,
+    height: f64,
+) -> f64 {
+    match state.text_fit {
+        TextFit::Fixed => state.font_size,
+        TextFit::ShrinkToFit => {
+            let max = state.font_size.min(state.text_fit_max_size);
+            find_largest_fitting_font_size(
+                ctx,
+                state,
+                text,
+                width,
+                height,
+                state.text_fit_max_size,
+                max,
+            )
+        }
+        TextFit::GrowToFit => {
+            let min = state.font_size.max(state.text_fit_min_size);
+            find_largest_fitting_font_size(
+                ctx,
+                state,
+                text,
+                width,
+                height,
+                min,
+                state.text_fit_max_size,
+            )
+        }
+        TextFit::Fit => find_largest_fitting_font_size(
+            ctx,
+            state,
+            text,
+            width,
+            height,
+            state.text_fit_min_size,
+            state.text_fit_max_size,
+        ),
+    }
+}
+
 fn render_textbox(
     ctx: &Context,
     state: &RenderState,
@@ -331,31 +504,9 @@ fn render_textbox(
     width: f64,
     height: f64,
 ) -> Result<(), RenderError> {
+    let font_size = fitted_font_size(ctx, state, text, width, height);
     let layout = pangocairo::functions::create_layout(ctx);
-    layout.set_text(text);
-
-    let mut font = FontDescription::from_string(&state.font_family);
-    font.set_size(to_pango_units(state.font_size));
-    layout.set_font_description(Some(&font));
-
-    layout.set_width(to_pango_units(width));
-    layout.set_height(to_pango_units(height));
-
-    layout.set_alignment(match state.text_align {
-        TextAlign::Left => pango::Alignment::Left,
-        TextAlign::Center => pango::Alignment::Center,
-        TextAlign::Right => pango::Alignment::Right,
-    });
-
-    layout.set_wrap(match state.line_break {
-        LineBreakMode::Word => pango::WrapMode::Word,
-        LineBreakMode::Char => pango::WrapMode::Char,
-        LineBreakMode::None => pango::WrapMode::Word,
-    });
-    if state.line_break == LineBreakMode::None {
-        layout.set_width(-1);
-        layout.set_single_paragraph_mode(true);
-    }
+    configure_text_layout(&layout, state, text, font_size, width, height);
 
     ctx.save()?;
 
@@ -386,6 +537,15 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
 
     for op in render_ops {
         match op {
+            RenderOp::SetTextFitMaxSize { max } => {
+                state.text_fit_max_size = *max;
+            }
+            RenderOp::SetTextFitMinSize { min } => {
+                state.text_fit_min_size = *min;
+            }
+            RenderOp::SetTextFit { fit } => {
+                state.text_fit = *fit;
+            }
             RenderOp::SetLineBreakMode { line_break } => {
                 state.line_break = *line_break;
             }

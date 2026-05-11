@@ -1,6 +1,6 @@
 use crate::{
     lexer::{Token, TokenKind},
-    renderer::{LineBreakMode, TextAlign, VerticalAlign},
+    renderer::{LineBreakMode, TextAlign, TextFit, VerticalAlign},
 };
 use std::collections::HashMap;
 
@@ -66,6 +66,15 @@ pub enum DrawOp {
     },
     SetLineBreakMode {
         line_break: LineBreakMode,
+    },
+    SetTextFit {
+        fit: TextFit,
+    },
+    SetTextFitMinSize {
+        min: NumberValue,
+    },
+    SetTextFitMaxSize {
+        max: NumberValue,
     },
     LinePath {
         x1: NumberValue,
@@ -492,6 +501,23 @@ impl Parser {
                     let break_mode = LineBreakMode::from_word(word).unwrap();
                     self.expect_word("wrap")?;
                     ops.push(DrawOp::SetLineBreakMode { line_break: break_mode });
+                }
+                TokenKind::Word(word) if TextFit::from_word(word).is_some() => {
+                    let fit = TextFit::from_word(word).unwrap();
+                    self.expect_word("textfit")?;
+                    ops.push(DrawOp::SetTextFit { fit });
+                }
+                TokenKind::Word(word) if word == "textfitmin" => {
+                    Self::require_stack(&stack, "textfitmin", 1, token)?;
+                    let size = Self::pop_number(&mut stack, "textfitmin", token)?;
+                    Self::validate_literal_positive(&size, "textfitmin", "size", token)?;
+                    ops.push(DrawOp::SetTextFitMinSize { min: size });
+                }
+                TokenKind::Word(word) if word == "textfitmax" => {
+                    Self::require_stack(&stack, "textfitmax", 1, token)?;
+                    let size = Self::pop_number(&mut stack, "textfitmax", token)?;
+                    Self::validate_literal_positive(&size, "textfitmax", "size", token)?;
+                    ops.push(DrawOp::SetTextFitMaxSize { max: size });
                 }
                 TokenKind::Word(word) if word == "fontsize" => {
                     Self::require_stack(&stack, "fontsize", 1, token)?;
