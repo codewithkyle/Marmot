@@ -36,6 +36,9 @@ pub enum RenderOp {
     SetTextFitMaxSize {
         max: f64,
     },
+    SetFontFamily {
+        font: String,
+    },
     StrokeLine {
         x1: f64,
         y1: f64,
@@ -239,6 +242,9 @@ pub fn lower_draw_ops(
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetFontFamily { font } => {
+                render_ops.push(RenderOp::SetFontFamily { font: eval_text(font, data)? });
+            }
             DrawOp::SetTextFitMaxSize { max } => {
                 render_ops.push(RenderOp::SetTextFitMaxSize {
                     max: eval_number(max, data)?,
@@ -540,6 +546,9 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
 
     for op in render_ops {
         match op {
+            RenderOp::SetFontFamily { font } => {
+                state.font_family = font.clone();
+            }
             RenderOp::SetTextFitMaxSize { max } => {
                 state.text_fit_max_size = *max;
             }

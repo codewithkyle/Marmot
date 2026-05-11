@@ -14,5 +14,6 @@ draw begin
   middle valign
   word wrap
   grow textfit
+  "Noto Sans Mono" font
   (Hello Marmot) 20 40 260 40 textbox
 end

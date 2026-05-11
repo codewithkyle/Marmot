@@ -76,6 +76,9 @@ pub enum DrawOp {
     SetTextFitMaxSize {
         max: NumberValue,
     },
+    SetFontFamily {
+        font: TextValue,
+    },
     LinePath {
         x1: NumberValue,
         y1: NumberValue,
@@ -486,6 +489,11 @@ impl Parser {
                             stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
                         }
                     }
+                }
+                TokenKind::Word(word) if word == "font" => {
+                    Self::require_stack(&stack, "font", 1, token)?;
+                    let font = Self::pop_string(&mut stack, "font", token)?;
+                    ops.push(DrawOp::SetFontFamily { font });
                 }
                 TokenKind::Word(word) if TextAlign::from_word(word).is_some() => {
                     let align = TextAlign::from_word(word).unwrap();
