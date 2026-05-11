@@ -1,0 +1,23 @@
+%!PSL 0.1
+page 300 120
+
+fonts begin
+  kablammo "fonts/Kablammo.ttf"
+end
+
+draw begin
+  1 1 1 rgb
+  0 0 300 120 rect fill
+
+  1 0 0 rgb
+  20 40 260 40 rect fill
+
+  0 0 0 rgb
+  14 fontsize
+  center align
+  middle valign
+  word wrap
+  grow textfit
+  (kablammo) font
+  (Hello Marmot) 20 40 260 40 textbox
+end

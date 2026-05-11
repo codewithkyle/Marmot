@@ -14,3 +14,7 @@ pango = "0.22.6"
 pangocairo = "0.22.0"
 zip = "2"
 tempfile = "3"
+ttf-parser = "0.25.1"
+
+[build-dependencies]
+pkg-config = "0.3"

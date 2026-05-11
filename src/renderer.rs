@@ -1,29 +1,10 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
 
 use crate::parser::{DrawOp, NumberValue, Page, TextValue};
 use cairo::{Context, PdfSurface};
+use crate::fonts::{RegisteredFont, RenderContext};
 use pango::FontDescription;
 use serde_json::Value;
-
-#[derive(Debug, Clone, Default)]
-pub struct RenderContext {
-    pub fonts: HashMap<String, RegisteredFont>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RegisteredFont {
-    pub path: PathBuf,
-    pub family_name: String,
-}
-
-impl RenderContext {
-    pub fn resolve_font(&self, name: &str) -> Option<&RegisteredFont> {
-        self.fonts.get(name)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -685,6 +666,8 @@ pub fn render_pdf(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, path::PathBuf};
+
     use super::*;
     use crate::parser::{DrawOp, NumberValue};
 

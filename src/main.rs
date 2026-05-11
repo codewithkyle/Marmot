@@ -1,3 +1,4 @@
+mod fonts;
 mod lexer;
 mod package;
 mod parser;
@@ -14,10 +15,11 @@ use std::{
 };
 
 use crate::{
+    fonts::{RegisteredFont, RenderContext, build_render_context},
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::Parser,
-    renderer::{RegisteredFont, RenderContext, render_pdf},
+    renderer::render_pdf,
     validator::validate_data,
 };
 
@@ -163,22 +165,7 @@ fn render(args: RenderArgs) -> Result<()> {
         None
     };
 
-    let font_map = template
-        .fonts
-        .iter()
-        .map(|font| {
-            let path = package.resolve_path(&font.path)?;
-            Ok((
-                font.name.clone(),
-                RegisteredFont {
-                    path: path,
-                    family_name: font.name.clone(),
-                },
-            ))
-        })
-        .collect::<Result<HashMap<_, _>>>()?;
-
-    let render_context = RenderContext { fonts: font_map };
+    let render_context = build_render_context(&template, &package)?;
 
     render_pdf(
         &template.page,
