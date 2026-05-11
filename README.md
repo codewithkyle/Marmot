@@ -12,7 +12,16 @@ Marmot is a PostScript-inspired template renderer for generating small dynamic P
 
 The initial goal is to render label-sized PDFs from Marmot templates and JSON/JSONL data, with a focus on deterministic batch rendering.
 
+## Documentation
+
+- CLI usage: [`docs/cli.md`](docs/cli.md)
+- PSL language reference: [`docs/psl.md`](docs/psl.md)
+- Docs index: [`docs/index.md`](docs/index.md)
+
 ## PSL (PostScript-Like) Template Language
+
+> Note: the example below includes ideas that are not fully implemented yet.
+> For implementation-accurate syntax and operators, use [`docs/psl.md`](docs/psl.md).
 
 ```
 %!PSL 0.1
