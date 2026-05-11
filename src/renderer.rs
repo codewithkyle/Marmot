@@ -418,7 +418,7 @@ fn layout_fits(layout: &pango::Layout, width: f64, height: f64) -> bool {
 }
 
 fn find_largest_fitting_font_size(
-    ctx: &Context,
+    layout: &pango::Layout,
     state: &RenderState,
     text: &str,
     width: f64,
@@ -430,12 +430,11 @@ fn find_largest_fitting_font_size(
         return min_size;
     }
 
-    let layout = pangocairo::functions::create_layout(ctx);
     let mut low = min_size;
     let mut high = max_size;
     let mut best = min_size;
 
-    for _ in 0..12 {
+    for _ in 0..8 {
         let mid = (low + high) / 2.0;
         configure_text_layout(&layout, state, text, mid, width, height);
 
@@ -451,7 +450,7 @@ fn find_largest_fitting_font_size(
 }
 
 fn fitted_font_size(
-    ctx: &Context,
+    layout: &pango::Layout,
     state: &RenderState,
     text: &str,
     width: f64,
@@ -460,21 +459,24 @@ fn fitted_font_size(
     match state.text_fit {
         TextFit::Fixed => state.font_size,
         TextFit::ShrinkToFit => {
+            if layout_fits(layout, width, height) {
+                return state.font_size;
+            }
             let max = state.font_size.min(state.text_fit_max_size);
             find_largest_fitting_font_size(
-                ctx,
+                layout,
                 state,
                 text,
                 width,
                 height,
-                state.text_fit_max_size,
+                state.text_fit_min_size,
                 max,
             )
         }
         TextFit::GrowToFit => {
             let min = state.font_size.max(state.text_fit_min_size);
             find_largest_fitting_font_size(
-                ctx,
+                layout,
                 state,
                 text,
                 width,
@@ -484,7 +486,7 @@ fn fitted_font_size(
             )
         }
         TextFit::Fit => find_largest_fitting_font_size(
-            ctx,
+            layout,
             state,
             text,
             width,
@@ -504,8 +506,9 @@ fn render_textbox(
     width: f64,
     height: f64,
 ) -> Result<(), RenderError> {
-    let font_size = fitted_font_size(ctx, state, text, width, height);
     let layout = pangocairo::functions::create_layout(ctx);
+
+    let font_size = fitted_font_size(&layout, state, text, width, height);
     configure_text_layout(&layout, state, text, font_size, width, height);
 
     ctx.save()?;
