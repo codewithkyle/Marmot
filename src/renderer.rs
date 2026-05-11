@@ -240,7 +240,7 @@ fn eval_number(value: &NumberValue, data: Option<&Value>) -> Result<f64, RenderE
     }
 }
 
-pub fn lower_draw_ops(
+fn lower_draw_ops(
     draw_ops: &[DrawOp],
     data: Option<&Value>,
 ) -> Result<Vec<RenderOp>, RenderError> {
