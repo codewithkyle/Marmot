@@ -72,3 +72,7 @@ end
 ## References
 
 - [PostScript Language Reference - 3rd Edition](https://drive.google.com/file/d/1MKZm12NrNdp2CyIV_yLKQnurBlvXn1Ji/view?usp=sharing)
+- [What is a Lexer (video)](https://www.youtube.com/watch?v=BI3K-ME3L74)
+- [Tokenize Text From Scratch in Rust (video)](https://www.youtube.com/watch?v=64nGSSQ3HSE)
+- [Writing a Simple Parser in Rust](https://adriann.github.io/rust_parser.html)
+- [Intro to Cairo Graphics in Rust](https://medium.com/@bit101/intro-to-cairo-graphics-in-rust-35470a6aed86)
