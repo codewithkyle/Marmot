@@ -5,14 +5,17 @@ mod validator;
 mod package;
 
 use anyhow::{Context, Result, anyhow, bail};
-use clap::{Arg, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
     fs::read_to_string,
     path::{Path, PathBuf},
 };
 
-use crate::{lexer::Lexer, package::MarmotPackage, parser::Parser, renderer::render_pdf, validator::validate_data};
+use crate::{
+    lexer::Lexer, package::{MarmotPackage, PackageBuilderOptions, create_package}, parser::Parser, renderer::render_pdf,
+    validator::validate_data,
+};
 
 struct CheckArgs {
     package_file: PathBuf,
@@ -23,6 +26,14 @@ struct RenderArgs {
     package_file: PathBuf,
     data_file: Option<PathBuf>,
     output_file: PathBuf,
+}
+
+struct PackArgs {
+    template_file: PathBuf,
+    name: String,
+    output_dir: Option<PathBuf>,
+    assets: Vec<PathBuf>,
+    fonts: Vec<PathBuf>,
 }
 
 struct BatchArgs {
@@ -50,6 +61,29 @@ fn main() -> Result<()> {
                 .arg(Arg::new("data"))
                 .arg(Arg::new("output").short('o').long("output").required(true)),
         )
+        .subcommand(
+            Command::new("pack")
+                .about("Create a .marmot package")
+                .arg(Arg::new("template").required(true))
+                .arg(Arg::new("name").required(true))
+                .arg(
+                    Arg::new("asset")
+                        .short('a')
+                        .long("asset")
+                        .value_name("PATH")
+                        .action(ArgAction::Append)
+                        .help("Add an asset file to the package"),
+                )
+                .arg(
+                    Arg::new("font")
+                        .short('f')
+                        .long("font")
+                        .value_name("PATH")
+                        .action(ArgAction::Append)
+                        .help("Add a font file to the package"),
+                )
+                .arg(Arg::new("output").short('o').long("output-dir")),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -61,6 +95,10 @@ fn main() -> Result<()> {
             let args = parse_render_args(sub_matches)?;
             render(args)?;
         }
+        Some(("pack", sub_matches)) => {
+            let args = parse_pack_args(sub_matches)?;
+            pack(args);
+        }
         _ => unreachable!("Exhausted list of subcommands."),
     };
 
@@ -69,9 +107,33 @@ fn main() -> Result<()> {
 
 fn parse_template_source(template_source: &str) -> Result<parser::Template> {
     let mut lexer = Lexer::new(template_source);
-    let tokens = lexer.tokenize().map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
+    let tokens = lexer
+        .tokenize()
+        .map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
     let mut parser = Parser::new(tokens);
-    parser.parse_template().map_err(|err| anyhow!("failed to parse template: {err:?}"))
+    parser
+        .parse_template()
+        .map_err(|err| anyhow!("failed to parse template: {err:?}"))
+}
+
+fn pack(args: PackArgs) -> Result<()> {
+    let output_dir = args.output_dir.unwrap_or_else(|| PathBuf::from("."));
+    ensure_dir_exists(&output_dir)?;
+
+    let output_file = output_dir.join(format!("{}.marmot", args.name));
+
+    let options = PackageBuilderOptions {
+        template_file: args.template_file,
+        output_file: output_file.clone(),
+        assets: args.assets,
+        fonts: args.fonts,
+    };
+
+    create_package(options)?;
+
+    println!("wrote {}", output_file.display());
+
+    Ok(())
 }
 
 fn render(args: RenderArgs) -> Result<()> {
@@ -97,8 +159,13 @@ fn render(args: RenderArgs) -> Result<()> {
         None
     };
 
-    render_pdf(&template.page, &template.draw, &args.output_file, data.as_ref())
-        .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
+    render_pdf(
+        &template.page,
+        &template.draw,
+        &args.output_file,
+        data.as_ref(),
+    )
+    .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
 
     println!("wrote {}", args.output_file.display());
 
@@ -144,6 +211,38 @@ fn parse_check_args(matches: &ArgMatches) -> Result<CheckArgs> {
         data_file,
     };
     ensure_file_exists(&args.data_file)?;
+    Ok(args)
+}
+
+fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
+    let template_file = matches
+        .get_one::<String>("template")
+        .expect("template is required")
+        .into();
+    let name = matches
+        .get_one::<String>("name")
+        .expect("name is required")
+        .into();
+    let output_dir = matches.get_one::<String>("output").map(PathBuf::from);
+    let fonts: Vec<PathBuf> = matches
+        .get_many::<String>("font")
+        .unwrap_or_default()
+        .map(PathBuf::from)
+        .collect();
+    let assets: Vec<PathBuf> = matches
+        .get_many::<String>("asset")
+        .unwrap_or_default()
+        .map(PathBuf::from)
+        .collect();
+
+    let args = PackArgs {
+        template_file,
+        name,
+        output_dir,
+        fonts,
+        assets,
+    };
+
     Ok(args)
 }
 

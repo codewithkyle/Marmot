@@ -1,12 +1,15 @@
 use anyhow::{Context, Result, bail};
 use std::{
-    fs::{File, create_dir_all, read_to_string}, io, path::{Path, PathBuf}
+    collections::HashSet,
+    fs::{File, create_dir_all, read_to_string},
+    io,
+    path::{Path, PathBuf},
 };
-use zip::ZipArchive;
+use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 use tempfile::TempDir;
 
-use crate::package;
+use crate::ensure_file_exists;
 
 pub struct MarmotPackage {
     temp_dir: TempDir,
@@ -70,9 +73,9 @@ impl MarmotPackage {
         let file = File::open(package_path)
             .with_context(|| format!("failed to open package: {}", package_path.display()))?;
 
-        let mut archive = ZipArchive::new(file).with_context(
-            || format!("failed to read package archive: {}", package_path.display()),
-        )?;
+        let mut archive = ZipArchive::new(file).with_context(|| {
+            format!("failed to read package archive: {}", package_path.display())
+        })?;
 
         for index in 0..archive.len() {
             let mut entry = archive
@@ -86,14 +89,16 @@ impl MarmotPackage {
             let output_path = dest.join(enclosed_name);
 
             if entry.is_dir() {
-                create_dir_all(&output_path)
-                    .with_context(|| format!("failed to create directory: {}", output_path.display()))?;
+                create_dir_all(&output_path).with_context(|| {
+                    format!("failed to create directory: {}", output_path.display())
+                })?;
                 continue;
             }
 
             if let Some(parent) = output_path.parent() {
-                create_dir_all(parent)
-                    .with_context(|| format!("failed to create directory: {}", output_path.display()))?;
+                create_dir_all(parent).with_context(|| {
+                    format!("failed to create directory: {}", output_path.display())
+                })?;
             }
 
             let mut output_file = File::create(&output_path)
@@ -107,3 +112,124 @@ impl MarmotPackage {
     }
 }
 
+pub struct PackageBuilderOptions {
+    pub template_file: PathBuf,
+    pub output_file: PathBuf,
+    pub assets: Vec<PathBuf>,
+    pub fonts: Vec<PathBuf>,
+}
+
+pub fn create_package(options: PackageBuilderOptions) -> Result<()> {
+    let mut archive_paths = HashSet::new();
+
+    validate_package_build_options(&options)?;
+
+    let output = File::create(&options.output_file).with_context(|| {
+        format!(
+            "failed to create package: {}",
+            options.output_file.display()
+        )
+    })?;
+
+    let mut zip = ZipWriter::new(output);
+
+    add_unique_file(
+        &mut zip,
+        &mut archive_paths,
+        &options.template_file,
+        "template.psl",
+    )?;
+
+    for font in &options.fonts {
+        let filename = filename_string(font)?;
+        let archive_path = format!("fonts/{filename}");
+        add_unique_file(&mut zip, &mut archive_paths, font, &archive_path)?;
+    }
+
+    for asset in &options.assets {
+        let filename = filename_string(asset)?;
+        let archive_path = format!("assets/{filename}");
+        add_unique_file(&mut zip, &mut archive_paths, asset, &archive_path)?;
+    }
+
+    zip.finish().with_context(|| {
+        format!(
+            "failed to finish package: {}",
+            options.output_file.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn filename_string(path: &Path) -> Result<String> {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid filename: {}", path.display()))?;
+    Ok(filename.to_string())
+}
+
+fn validate_package_build_options(options: &PackageBuilderOptions) -> Result<()> {
+    ensure_file_exists(&options.template_file)?;
+
+    if options.output_file.extension().and_then(|ext| ext.to_str()) != Some("marmot") {
+        bail!(
+            "package output must end with .marmot: {}",
+            options.output_file.display()
+        );
+    }
+
+    // TODO: figure out if we should allow overwriting packages
+    if options.output_file.exists() {
+        bail!("package already exists: {}", options.output_file.display());
+    }
+
+    if let Some(parent) = options.output_file.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            bail!("output directory does not exist: {}", parent.display());
+        }
+    }
+
+    for font in &options.fonts {
+        ensure_file_exists(font)?;
+    }
+
+    for asset in &options.assets {
+        ensure_file_exists(asset)?;
+    }
+
+    Ok(())
+}
+
+fn add_unique_file(
+    zip: &mut ZipWriter<File>,
+    archive_paths: &mut HashSet<String>,
+    source_path: &Path,
+    archive_path: &str,
+) -> Result<()> {
+    if !archive_paths.insert(archive_path.to_string()) {
+        bail!("duplicate package entry: {archive_path}");
+    }
+
+    add_file_to_zip(zip, source_path, archive_path)
+}
+
+fn add_file_to_zip(
+    zip: &mut ZipWriter<File>,
+    source_path: &Path,
+    archive_path: &str,
+) -> Result<()> {
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    zip.start_file(archive_path, options)
+        .with_context(|| format!("failed to start archive entry: {archive_path}"))?;
+
+    let mut input = File::open(source_path)
+        .with_context(|| format!("failed to open file: {}", source_path.display()))?;
+
+    io::copy(&mut input, zip)
+        .with_context(|| format!("failed to write archive entry: {archive_path}"))?;
+
+    Ok(())
+}
