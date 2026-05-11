@@ -5,7 +5,12 @@ draw begin
   1 1 1 rgb
   0 0 300 120 rect fill
 
+  1 0 0 rgb
+  20 40 260 40 rect fill
+
   0 0 0 rgb
-  8 fontsize
-  (Hello Marmot) 20 40 260 40 textbox
+  12 fontsize
+  center align
+  middle valign
+  (Hello Marmot. This is a very long string to test how line breaks work, or if they don't.) 20 40 260 40 textbox
 end

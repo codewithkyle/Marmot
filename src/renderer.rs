@@ -18,6 +18,12 @@ pub enum RenderOp {
     SetFontSize {
         size: f64,
     },
+    SetTextAlignment {
+        align: TextAlign,
+    },
+    SetVerticalAlignment {
+        align: VerticalAlign,
+    },
     StrokeLine {
         x1: f64,
         y1: f64,
@@ -77,14 +83,43 @@ enum PendingPath {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum TextAlign {
+pub enum TextAlign {
     Left,
     Center,
     Right,
 }
 
+impl TextAlign {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "center" => Some(Self::Center),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum LineBreakMode {
+pub enum VerticalAlign {
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl VerticalAlign {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "top" => Some(Self::Top),
+            "bottom" => Some(Self::Bottom),
+            "middle" => Some(Self::Middle),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineBreakMode {
     Word,
     Char,
     None,
@@ -95,6 +130,7 @@ struct RenderState {
     font_family: String,
     font_size: f64,
     text_align: TextAlign,
+    vertical_align: VerticalAlign,
     line_break: LineBreakMode,
     crop_text: bool,
 }
@@ -105,6 +141,7 @@ impl Default for RenderState {
             font_family: "Sans".to_string(),
             font_size: 12.0,
             text_align: TextAlign::Left,
+            vertical_align: VerticalAlign::Top,
             line_break: LineBreakMode::Word,
             crop_text: true,
         }
@@ -153,6 +190,12 @@ pub fn lower_draw_ops(
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetVerticalAlignment { align } => {
+                render_ops.push(RenderOp::SetVerticalAlignment { align: *align });
+            }
+            DrawOp::SetTextAlignment { align } => {
+                render_ops.push(RenderOp::SetTextAlignment { align: *align });
+            }
             DrawOp::SetFontSize { size } => {
                 render_ops.push(RenderOp::SetFontSize {
                     size: eval_number(size, data)?,
@@ -303,7 +346,16 @@ fn render_textbox(
         ctx.clip();
     }
 
-    ctx.move_to(x, y);
+    let (_, logical_rect) = layout.pixel_extents();
+    let text_height = logical_rect.height() as f64;
+
+    let draw_y = match state.vertical_align {
+        VerticalAlign::Top => y,
+        VerticalAlign::Middle => y + ((height - text_height) / 2.0),
+        VerticalAlign::Bottom => y + (height - text_height),
+    };
+
+    ctx.move_to(x, draw_y);
     pangocairo::functions::show_layout(ctx, &layout);
 
     ctx.restore()?;
@@ -316,6 +368,12 @@ fn execute_render_ops(ctx: &Context, render_ops: &[RenderOp]) -> Result<(), Rend
 
     for op in render_ops {
         match op {
+            RenderOp::SetVerticalAlignment { align } => {
+                state.vertical_align = *align;
+            }
+            RenderOp::SetTextAlignment { align } => {
+                state.text_align = *align;
+            }
             RenderOp::SetRgb { r, g, b } => {
                 ctx.set_source_rgb(*r, *g, *b);
             }

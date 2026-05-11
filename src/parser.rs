@@ -1,4 +1,7 @@
-use crate::lexer::{Token, TokenKind};
+use crate::{
+    lexer::{Token, TokenKind},
+    renderer::{TextAlign, VerticalAlign},
+};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +55,15 @@ pub enum DrawOp {
     SetStrokeWidth {
         width: NumberValue,
     },
+    SetFontSize {
+        size: NumberValue,
+    },
+    SetTextAlignment {
+        align: TextAlign,
+    },
+    SetVerticalAlignment {
+        align: VerticalAlign,
+    },
     LinePath {
         x1: NumberValue,
         y1: NumberValue,
@@ -72,9 +84,6 @@ pub enum DrawOp {
         y: NumberValue,
         width: NumberValue,
         height: NumberValue,
-    },
-    SetFontSize {
-        size: NumberValue,
     },
 }
 
@@ -465,6 +474,16 @@ impl Parser {
                             stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
                         }
                     }
+                }
+                TokenKind::Word(word) if TextAlign::from_word(word).is_some() => {
+                    let align = TextAlign::from_word(word).unwrap();
+                    self.expect_word("align")?;
+                    ops.push(DrawOp::SetTextAlignment { align });
+                }
+                TokenKind::Word(word) if VerticalAlign::from_word(word).is_some() => {
+                    let align = VerticalAlign::from_word(word).unwrap();
+                    self.expect_word("valign")?;
+                    ops.push(DrawOp::SetVerticalAlignment { align });
                 }
                 TokenKind::Word(word) if word == "fontsize" => {
                     Self::require_stack(&stack, "fontsize", 1, token)?;
