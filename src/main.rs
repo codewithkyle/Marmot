@@ -2,6 +2,7 @@ mod lexer;
 mod parser;
 mod renderer;
 mod validator;
+mod package;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgMatches, Command};
@@ -11,15 +12,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{lexer::Lexer, parser::Parser, renderer::render_pdf, validator::validate_data};
+use crate::{lexer::Lexer, package::MarmotPackage, parser::Parser, renderer::render_pdf, validator::validate_data};
 
 struct CheckArgs {
-    template_file: PathBuf,
+    package_file: PathBuf,
     data_file: PathBuf,
 }
 
 struct RenderArgs {
-    template_file: PathBuf,
+    package_file: PathBuf,
     data_file: Option<PathBuf>,
     output_file: PathBuf,
 }
@@ -38,14 +39,14 @@ fn main() -> Result<()> {
         .arg_required_else_help(true)
         .subcommand(
             Command::new("check")
-                .about("Check a template against a data file")
-                .arg(Arg::new("template").required(true))
+                .about("Check a .marmot package against a data file")
+                .arg(Arg::new("package").required(true))
                 .arg(Arg::new("data").required(true)),
         )
         .subcommand(
             Command::new("render")
-                .about("Render a template with a data file")
-                .arg(Arg::new("template").required(true))
+                .about("Render a .marmot package with a data file")
+                .arg(Arg::new("package").required(true))
                 .arg(Arg::new("data"))
                 .arg(Arg::new("output").short('o').long("output").required(true)),
         )
@@ -66,19 +67,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn render(args: RenderArgs) -> Result<()> {
-    let template_source = read_to_string(&args.template_file)
-        .with_context(|| format!("failed to read template: {}", args.template_file.display()))?;
-
-    let mut lexer = Lexer::new(&template_source);
-    let tokens = lexer
-        .tokenize()
-        .map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
-
+fn parse_template_source(template_source: &str) -> Result<parser::Template> {
+    let mut lexer = Lexer::new(template_source);
+    let tokens = lexer.tokenize().map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
     let mut parser = Parser::new(tokens);
-    let template = parser
-        .parse_template()
-        .map_err(|err| anyhow!("failed to parse template: {err:?}"))?;
+    parser.parse_template().map_err(|err| anyhow!("failed to parse template: {err:?}"))
+}
+
+fn render(args: RenderArgs) -> Result<()> {
+    let package = MarmotPackage::open(&args.package_file)?;
+    let template_source = package.read_template_source()?;
+    let template = parse_template_source(&template_source)?;
 
     let data: Option<Value> = if let Some(data_file) = args.data_file {
         let data_source = read_to_string(&data_file)
@@ -107,18 +106,9 @@ fn render(args: RenderArgs) -> Result<()> {
 }
 
 fn check(args: CheckArgs) -> Result<()> {
-    let template_source = read_to_string(&args.template_file)
-        .with_context(|| format!("failed to read template: {}", args.template_file.display()))?;
-
-    let mut lexer = Lexer::new(&template_source);
-    let tokens = lexer
-        .tokenize()
-        .map_err(|err| anyhow!("failed to tokenize template: {err:?}"))?;
-
-    let mut parser = Parser::new(tokens);
-    let template = parser
-        .parse_template()
-        .map_err(|err| anyhow!("failed to parse template: {err:?}"))?;
+    let package = MarmotPackage::open(&args.package_file)?;
+    let template_source = package.read_template_source()?;
+    let template = parse_template_source(&template_source)?;
 
     let data_source = read_to_string(&args.data_file)
         .with_context(|| format!("failed to read data: {}", args.data_file.display()))?;
@@ -141,27 +131,26 @@ fn check(args: CheckArgs) -> Result<()> {
 }
 
 fn parse_check_args(matches: &ArgMatches) -> Result<CheckArgs> {
-    let template_file = matches
-        .get_one::<String>("template")
-        .expect("template is required")
+    let package_file = matches
+        .get_one::<String>("package")
+        .expect("package is required")
         .into();
     let data_file = matches
         .get_one::<String>("data")
         .expect("data is required")
         .into();
     let args = CheckArgs {
-        template_file,
+        package_file,
         data_file,
     };
-    ensure_file_exists(&args.template_file)?;
     ensure_file_exists(&args.data_file)?;
     Ok(args)
 }
 
 fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
-    let template_file = matches
-        .get_one::<String>("template")
-        .expect("template is required")
+    let package_file = matches
+        .get_one::<String>("package")
+        .expect("package is required")
         .into();
     let data_file = matches.get_one::<String>("data").map(PathBuf::from);
     let output_file = matches
@@ -170,12 +159,11 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .into();
 
     let args = RenderArgs {
-        template_file,
+        package_file,
         data_file,
         output_file,
     };
 
-    ensure_file_exists(&args.template_file)?;
     if let Some(data_file) = &args.data_file {
         ensure_file_exists(data_file)?;
     }

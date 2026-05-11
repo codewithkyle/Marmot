@@ -12,3 +12,5 @@ anyhow = "1.0"
 cairo-rs = { version = "0.22.0", features = ["pdf"] }
 pango = "0.22.6"
 pangocairo = "0.22.0"
+zip = "2"
+tempfile = "3"
