@@ -15,6 +15,7 @@ pangocairo = "0.22.0"
 zip = "2"
 tempfile = "3"
 ttf-parser = "0.25.1"
+image = { version = "0.25", default-features = false, features = ["png","jpeg","webp"] }
 
 [build-dependencies]
 pkg-config = "0.3"

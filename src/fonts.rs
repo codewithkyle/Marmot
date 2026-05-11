@@ -1,17 +1,26 @@
 use std::{
     collections::HashMap,
     fs,
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use image::{ImageFormat, ImageReader};
 use ttf_parser::{Face, name_id};
 
-use crate::{package::MarmotPackage, parser::Template};
+use crate::{
+    package::MarmotPackage,
+    parser::{AssetType, Template},
+};
+
+const MAX_ASSET_BYTES: u64 = 50 * 1024 * 1024; // NOTE: 50 MiB
+const MAX_IMAGE_PIXELS: u64 = 40_000_000; // NOTE: 40 MP
 
 #[derive(Debug, Clone, Default)]
 pub struct RenderContext {
     pub fonts: HashMap<String, RegisteredFont>,
+    pub assets: HashMap<String, RegisteredAsset>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,10 +29,40 @@ pub struct RegisteredFont {
     pub family_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegisteredAsset {
+    pub path: PathBuf,
+    pub name: String,
+    pub ty: AssetType,
+    pub byte_len: u64,
+    pub image: Option<RegisteredImageInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegisteredImageInfo {
+    pub format: String,
+    pub width: u32,
+    pub height: u32,
+}
+
 impl RenderContext {
     pub fn resolve_font(&self, name: &str) -> Option<&RegisteredFont> {
         self.fonts.get(name)
     }
+    pub fn resolve_asset(&self, name: &str) -> Option<&RegisteredAsset> {
+        self.assets.get(name)
+    }
+}
+
+fn is_allowed_image_format(format: ImageFormat) -> bool {
+    matches!(
+        format,
+        ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
+    )
+}
+
+fn image_format_label(format: ImageFormat) -> String {
+    format!("{format:?}").to_lowercase()
 }
 
 fn register_font(alias: &str, path: PathBuf) -> Result<RegisteredFont> {
@@ -34,8 +73,116 @@ fn register_font(alias: &str, path: PathBuf) -> Result<RegisteredFont> {
     Ok(RegisteredFont { path, family_name })
 }
 
+fn register_asset(name: String, path: PathBuf, ty: AssetType) -> Result<RegisteredAsset> {
+    let metadata = fs::metadata(&path)
+        .with_context(|| format!("asset {name} metadata read failed: {}", path.display()))?;
+
+    if !metadata.is_file() {
+        bail!("asset {name} path is not file: {}", path.display());
+    }
+
+    let byte_len = metadata.len();
+    if byte_len == 0 {
+        bail!("asset {name} file is empty: {}", path.display());
+    }
+    if byte_len > MAX_ASSET_BYTES {
+        bail!(
+            "asset {name} too large: {} bytes (max {}) at {}",
+            byte_len,
+            MAX_ASSET_BYTES,
+            path.display()
+        );
+    }
+
+    let bytes =
+        fs::read(&path).with_context(|| format!("asset {name} read failed: {}", path.display()))?;
+
+    let image = match ty {
+        AssetType::Image => Some(validate_image_asset(&name, &path, &bytes)?),
+    };
+
+    Ok(RegisteredAsset {
+        path,
+        name,
+        ty,
+        byte_len,
+        image: image,
+    })
+}
+
+fn validate_image_asset(name: &str, path: &Path, bytes: &[u8]) -> Result<RegisteredImageInfo> {
+    let format = image::guess_format(bytes).with_context(|| {
+        format!(
+            "asset {name} iamge probe failed (unknown/invalid header): {}",
+            path.display()
+        )
+    })?;
+
+    if !is_allowed_image_format(format) {
+        bail!(
+            "asset {name} image format not allowed: {} at {}",
+            image_format_label(format),
+            path.display()
+        );
+    }
+
+    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .with_context(|| {
+            format!(
+                "asset {name} image dimensions read failed ({}) at {}",
+                image_format_label(format),
+                path.display()
+            )
+        })?;
+
+    if width == 0 || height == 0 {
+        bail!(
+            "asset {name} image has zero dimension: {}x{} at {}",
+            width,
+            height,
+            path.display()
+        );
+    }
+
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| {
+            anyhow!(
+                "asset {name} image pixel count overflow at {}",
+                path.display()
+            )
+        })?;
+
+    if pixels > MAX_IMAGE_PIXELS {
+        bail!(
+            "asset {name} iamge too large: {}x{} ({} px, max {}) at {}",
+            width,
+            height,
+            pixels,
+            MAX_IMAGE_PIXELS,
+            path.display()
+        );
+    }
+
+    image::load_from_memory_with_format(bytes, format).with_context(|| {
+        format!(
+            "asset {name} image decode failed ({}) at {}",
+            image_format_label(format),
+            path.display()
+        )
+    })?;
+
+    Ok(RegisteredImageInfo {
+        format: image_format_label(format),
+        width,
+        height,
+    })
+}
+
 pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Result<RenderContext> {
     let mut fonts = HashMap::new();
+    let mut assets = HashMap::new();
 
     for font_decl in &template.fonts {
         if fonts.contains_key(&font_decl.name) {
@@ -54,7 +201,24 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         fonts.insert(font_decl.name.clone(), registered);
     }
 
-    Ok(RenderContext { fonts })
+    for asset_decl in &template.assets {
+        if assets.contains_key(&asset_decl.name) {
+            bail!("duplicate asset alias: {}", asset_decl.name);
+        }
+
+        let path = package.resolve_path(&asset_decl.path).with_context(|| {
+            format!(
+                "failed to resolve asset alias {} at {}",
+                asset_decl.name, asset_decl.path
+            )
+        })?;
+
+        let registered = register_asset(asset_decl.name.clone(), path, asset_decl.ty.clone())?;
+
+        assets.insert(asset_decl.name.clone(), registered);
+    }
+
+    Ok(RenderContext { fonts, assets })
 }
 
 fn read_name(face: &Face, id: u16) -> Option<String> {
@@ -76,7 +240,7 @@ fn read_font_family_name(path: &Path) -> Result<String> {
     }
 
     if let Some(full_name) = read_name(&face, name_id::FULL_NAME) {
-        return Ok(full_name)
+        return Ok(full_name);
     }
 
     if let Some(postscript_name) = read_name(&face, name_id::POST_SCRIPT_NAME) {
@@ -144,5 +308,94 @@ mod fontconfig {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+    fn write_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(name);
+        fs::write(&path, bytes).unwrap();
+        // keep dir alive by leaking for test lifetime
+        std::mem::forget(dir);
+        path
+    }
+    fn tiny_valid_png() -> Vec<u8> {
+        vec![
+            137, 80, 78, 71, 13, 10, 26, 10, // signature
+            0, 0, 0, 13, 73, 72, 68, 82, // IHDR chunk
+            0, 0, 0, 1, // width = 1
+            0, 0, 0, 1, // height = 1
+            8, 6, 0, 0, 0, 31, 21, 196, 137, // IHDR payload + CRC
+            0, 0, 0, 13, 73, 68, 65, 84, // IDAT chunk
+            120, 156, 99, 248, 255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73,
+            69, 78, 68, 174, 66, 96, 130, // IEND
+        ]
+    }
+
+    #[test]
+    fn register_asset_accepts_valid_png_image() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("ok.png");
+        // Build real 1x1 PNG with encoder
+        let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        img.save_with_format(&path, image::ImageFormat::Png)
+            .unwrap();
+        let asset = register_asset("logo".to_string(), path.clone(), AssetType::Image).unwrap();
+        assert_eq!(asset.name, "logo");
+        assert_eq!(asset.path, path);
+        assert_eq!(asset.ty, AssetType::Image);
+        assert!(asset.byte_len > 0);
+        let image = asset.image.expect("expected image metadata");
+        assert_eq!(image.width, 1);
+        assert_eq!(image.height, 1);
+        assert_eq!(image.format.to_ascii_lowercase(), "png");
+    }
+
+    #[test]
+    fn register_asset_errors_for_missing_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing.png");
+        let err = register_asset("missing".to_string(), path, AssetType::Image).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("asset missing"));
+        assert!(msg.contains("metadata"));
+    }
+
+    #[test]
+    fn register_asset_errors_for_empty_file() {
+        let path = write_file("empty.png", &[]);
+        let err = register_asset("empty".to_string(), path, AssetType::Image).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("asset empty"));
+        assert!(msg.contains("empty"));
+    }
+
+    #[test]
+    fn register_asset_errors_for_non_image_bytes() {
+        let path = write_file("not-image.bin", b"this is not image data");
+        let err = register_asset("bad".to_string(), path, AssetType::Image).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("asset bad"));
+        assert!(msg.contains("probe failed") || msg.contains("image format not allowed"));
+    }
+
+    #[test]
+    fn register_asset_errors_for_truncated_image() {
+        // PNG signature only: format may probe as png, decode/dimensions must fail
+        let path = write_file("truncated.png", &[137, 80, 78, 71, 13, 10, 26, 10]);
+        let err = register_asset("trunc".to_string(), path, AssetType::Image).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("asset trunc"));
+        assert!(
+            msg.contains("dimensions read failed")
+                || msg.contains("decode failed")
+                || msg.contains("probe failed")
+        );
     }
 }

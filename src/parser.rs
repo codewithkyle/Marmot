@@ -13,6 +13,7 @@ pub struct Template {
     pub slots: Vec<SlotDecl>,
     pub draw: Vec<DrawOp>,
     pub fonts: Vec<FontDecl>,
+    pub assets: Vec<AssetDecl>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +21,19 @@ pub struct FontDecl {
     pub name: String,
     pub path: String,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetDecl {
+    pub name: String,
+    pub path: String,
+    pub ty: AssetType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssetType {
+    Image
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 enum StackValue {
@@ -150,6 +164,11 @@ pub enum ParseError {
         line: usize,
         column: usize,
     },
+    UnknownAssetType {
+        found: String,
+        line: usize,
+        column: usize,
+    },
     UnknownSlot {
         name: String,
         line: usize,
@@ -243,6 +262,7 @@ impl Parser {
 
         let slots = self.parse_optional_slots()?;
         let fonts = self.parse_optional_fonts()?;
+        let assets = self.parse_optional_assets()?;
 
         let slot_lookup = Self::build_slot_lookup(&slots);
 
@@ -256,6 +276,7 @@ impl Parser {
             slots,
             draw,
             fonts,
+            assets,
         })
     }
 
@@ -309,6 +330,28 @@ impl Parser {
         match &token.kind {
             TokenKind::String(value) => Ok(value.clone()),
             found => Err(ParseError::ExpectedString {
+                found: found.clone(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
+    }
+
+    fn expect_asset_word(&mut self) -> Result<AssetType, ParseError> {
+        let token = self.advance();
+
+        match &token.kind {
+            TokenKind::Word(value) => {
+                match value.as_str() {
+                    "image" => Ok(AssetType::Image),
+                    found => Err(ParseError::UnknownAssetType {
+                        found: found.to_string(),
+                        line: token.line,
+                        column: token.column,
+                    })
+                }
+            },
+            found => Err(ParseError::ExpectedAnyWord {
                 found: found.clone(),
                 line: token.line,
                 column: token.column,
@@ -713,6 +756,43 @@ impl Parser {
         }
 
         self.parse_fonts()
+    }
+
+    fn parse_optional_assets(&mut self) -> Result<Vec<AssetDecl>, ParseError> {
+        if !self.check_word("assets") {
+            return Ok(Vec::new());
+        }
+
+        self.parse_assets()
+    }
+
+    fn parse_assets(&mut self) -> Result<Vec<AssetDecl>, ParseError> {
+        self.expect_word("assets")?;
+        self.expect_word("begin")?;
+
+        let mut assets = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "assets block".to_string(),
+                });
+            }
+
+            let asset = self.parse_asset_decl()?;
+            assets.push(asset);
+        }
+
+        self.expect_word("end")?;
+        Ok(assets)
+    }
+
+    fn parse_asset_decl(&mut self) -> Result<AssetDecl, ParseError> {
+        let name = self.expect_any_word()?;
+        let ty = self.expect_asset_word()?;
+        let path = self.expect_string()?;
+
+        Ok(AssetDecl { name, path, ty })
     }
 
     fn parse_font_decl(&mut self) -> Result<FontDecl, ParseError> {

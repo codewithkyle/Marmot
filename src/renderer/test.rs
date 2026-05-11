@@ -1,7 +1,10 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use super::*;
-use crate::parser::{DrawOp, NumberValue};
+use crate::{
+    fonts::RegisteredAsset,
+    parser::{DrawOp, NumberValue},
+};
 
 #[test]
 fn lowers_rect_fill() {
@@ -144,6 +147,7 @@ fn renders_basic_pdf() {
 
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
     let data: Option<&Value> = None;
@@ -421,6 +425,7 @@ fn renders_static_text_pdf() {
 
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
     render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
@@ -441,7 +446,10 @@ fn resolves_declared_font_as_registered_packaged_font() {
     let mut fonts = HashMap::new();
     fonts.insert("helvetica_bold".to_string(), registered.clone());
 
-    let context = RenderContext { fonts };
+    let context = RenderContext {
+        fonts,
+        assets: HashMap::<String, RegisteredAsset>::new(),
+    };
 
     let font = resolve_current_font(&context, "helvetica_bold");
 
@@ -458,6 +466,7 @@ fn resolves_declared_font_as_registered_packaged_font() {
 fn resolves_unknown_font_as_system_font() {
     let context = RenderContext {
         fonts: HashMap::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
     let font = resolve_current_font(&context, "Sans");
@@ -675,6 +684,7 @@ fn returns_cairo_error_for_invalid_output_path() {
     let output_path = PathBuf::from("/definitely/missing/path/marmot-render-test.pdf");
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
     let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
