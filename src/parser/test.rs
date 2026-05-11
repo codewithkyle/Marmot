@@ -1013,7 +1013,13 @@ end
     let mut parser = Parser::new(tokens);
     let err = parser.parse_template().unwrap_err();
 
-    assert_eq!(err, ParseError::UnpaintedPath { line: 5, column: 24 });
+    assert_eq!(
+        err,
+        ParseError::UnpaintedPath {
+            line: 5,
+            column: 24
+        }
+    );
 }
 
 #[test]
@@ -1119,4 +1125,50 @@ end
             },
         ]
     );
+}
+
+#[test]
+fn parses_image_draw_op() {
+    let source = r#"%!PSL 0.1
+page 200 100
+draw begin
+  "logo" 10 20 30 40 image
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Image {
+            asset: TextValue::Literal("logo".to_string()),
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(30.0),
+            height: NumberValue::Literal(40.0),
+        }]
+    );
+}
+#[test]
+fn errors_when_image_asset_operand_is_not_string() {
+    let source = r#"%!PSL 0.1
+page 200 100
+draw begin
+  1 10 20 30 40 image
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+    assert!(matches!(
+        err,
+        ParseError::UnexpectedStackValue {
+            operator,
+            expected,
+            found,
+            ..
+        } if operator == "image" && expected == "string" && found == "number"
+    ));
 }

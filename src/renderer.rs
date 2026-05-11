@@ -1,12 +1,18 @@
-#[cfg(test)] mod test;
+#[cfg(test)]
+mod test;
 
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
-use crate::parser::{DrawOp, NumberValue, Page, TextValue};
-use cairo::{Context, PdfSurface};
 use crate::fonts::{RegisteredFont, RenderContext};
+use crate::parser::{AssetType, DrawOp, NumberValue, Page, TextValue};
+use cairo::{Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
+
+type ImageCache = HashMap<PathBuf, cairo::ImageSurface>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -67,14 +73,46 @@ pub enum RenderOp {
         width: f64,
         height: f64,
     },
+    Image {
+        asset: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
 }
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
-    MissingSlot { slot: String },
-    MissingData { slot: String },
-    InvalidNumberSlot { slot: String },
-    InvalidTextSlot { slot: String },
+    MissingSlot {
+        slot: String,
+    },
+    MissingData {
+        slot: String,
+    },
+    InvalidNumberSlot {
+        slot: String,
+    },
+    InvalidTextSlot {
+        slot: String,
+    },
+    WrongAssetType {
+        alias: String,
+        found: AssetType,
+    },
+    InvalidImageGeometry {
+        alias: String,
+        width: f64,
+        height: f64,
+    },
+    ImageDecode {
+        alias: String,
+        path: PathBuf,
+        message: String,
+    },
+    MissingAssetAlias {
+        alias: String,
+    },
     Cairo(cairo::Error),
 }
 
@@ -242,10 +280,7 @@ fn eval_number(value: &NumberValue, data: Option<&Value>) -> Result<f64, RenderE
     }
 }
 
-fn lower_draw_ops(
-    draw_ops: &[DrawOp],
-    data: Option<&Value>,
-) -> Result<Vec<RenderOp>, RenderError> {
+fn lower_draw_ops(draw_ops: &[DrawOp], data: Option<&Value>) -> Result<Vec<RenderOp>, RenderError> {
     let mut render_ops = Vec::new();
     let mut pending_path: Option<PendingPath> = None;
 
@@ -363,6 +398,21 @@ fn lower_draw_ops(
                         panic!("parser should prevent filling a line");
                     }
                 }
+            }
+            DrawOp::Image {
+                asset,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                render_ops.push(RenderOp::Image {
+                    asset: eval_text(asset, data)?,
+                    x: eval_number(x, data)?,
+                    y: eval_number(y, data)?,
+                    width: eval_number(width, data)?,
+                    height: eval_number(height, data)?,
+                });
             }
             DrawOp::TextBox {
                 text,
@@ -519,6 +569,124 @@ fn fitted_font_size(
     }
 }
 
+fn premultiply(channel: u8, alpha: u8) -> u8 {
+    ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
+}
+
+fn load_image_surface(alias: &str, path: &Path) -> Result<cairo::ImageSurface, RenderError> {
+    let dyn_img = image::open(path).map_err(|err| RenderError::ImageDecode {
+        alias: alias.to_string(),
+        path: path.to_path_buf(),
+        message: err.to_string(),
+    })?;
+
+    let rgba = dyn_img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    let mut surface =
+        cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)?;
+    let stride = surface.stride() as usize;
+    let src = rgba.as_raw();
+
+    {
+        let mut dst = surface.data().map_err(|err| RenderError::ImageDecode {
+            alias: alias.to_string(),
+            path: path.to_path_buf(),
+            message: format!("cairo surface borrow failed: {err}"),
+        })?;
+
+        for y in 0..height as usize {
+            let src_row = &src[y * width as usize * 4..(y + 1) * width as usize * 4];
+            let dst_row = &mut dst[y * stride..y * stride + width as usize * 4];
+
+            for x in 0..width as usize {
+                let si = x * 4;
+                let di = x * 4;
+
+                let r = src_row[si];
+                let g = src_row[si + 1];
+                let b = src_row[si + 2];
+                let a = src_row[si + 3];
+
+                dst_row[di] = premultiply(b, a);
+                dst_row[di + 1] = premultiply(g, a);
+                dst_row[di + 2] = premultiply(r, a);
+                dst_row[di + 3] = a;
+            }
+        }
+    }
+
+    surface.mark_dirty();
+    Ok(surface)
+}
+
+fn get_or_load_image_surface<'a>(
+    cache: &'a mut ImageCache,
+    alias: &str,
+    path: &Path,
+) -> Result<&'a cairo::ImageSurface, RenderError> {
+    if !cache.contains_key(path) {
+        let surface = load_image_surface(alias, path)?;
+        cache.insert(path.to_path_buf(), surface);
+    }
+
+    Ok(cache.get(path).expect("cache must contain inserted image"))
+}
+
+fn render_image(
+    ctx: &Context,
+    context: &RenderContext,
+    cache: &mut ImageCache,
+    asset: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidImageGeometry {
+            alias: asset.to_string(),
+            width,
+            height,
+        });
+    }
+
+    let registered =
+        context
+            .resolve_asset(asset)
+            .ok_or_else(|| RenderError::MissingAssetAlias {
+                alias: asset.to_string(),
+            })?;
+
+    if registered.ty != AssetType::Image {
+        return Err(RenderError::WrongAssetType {
+            alias: asset.to_string(),
+            found: registered.ty.clone(),
+        });
+    }
+
+    let surface = get_or_load_image_surface(cache, asset, registered.path.as_path())?;
+    let src_w = surface.width() as f64;
+    let src_h = surface.height() as f64;
+
+    ctx.save()?;
+    ctx.rectangle(x, y, width, height);
+    ctx.clip();
+
+    ctx.translate(x, y);
+    ctx.scale(width / src_w, height / src_h);
+
+    let pattern = cairo::SurfacePattern::create(surface);
+    pattern.set_extend(cairo::Extend::Pad);
+    pattern.set_filter(cairo::Filter::Best);
+
+    ctx.set_source(&pattern)?;
+    ctx.paint()?;
+    ctx.restore()?;
+
+    Ok(())
+}
+
 fn render_textbox(
     ctx: &Context,
     state: &RenderState,
@@ -573,6 +741,7 @@ fn execute_render_ops(
     context: &RenderContext,
 ) -> Result<(), RenderError> {
     let mut state = RenderState::default();
+    let mut image_cache: ImageCache = HashMap::new();
 
     for op in render_ops {
         match op {
@@ -628,6 +797,24 @@ fn execute_render_ops(
             } => {
                 ctx.rectangle(*x, *y, *width, *height);
                 ctx.fill()?;
+            }
+            RenderOp::Image {
+                asset,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                render_image(
+                    ctx,
+                    context,
+                    &mut image_cache,
+                    asset,
+                    *x,
+                    *y,
+                    *width,
+                    *height,
+                )?;
             }
             RenderOp::TextBox {
                 text,

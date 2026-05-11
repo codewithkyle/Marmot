@@ -691,3 +691,99 @@ fn returns_cairo_error_for_invalid_output_path() {
 
     assert!(matches!(err, RenderError::Cairo(_)));
 }
+
+#[test]
+fn lowers_image_draw_op() {
+    use crate::parser::TextValue;
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("logo".to_string()),
+        x: NumberValue::Literal(12.0),
+        y: NumberValue::Literal(24.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(40.0),
+    }];
+    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
+    assert_eq!(
+        render_ops,
+        vec![RenderOp::Image {
+            asset: "logo".to_string(),
+            x: 12.0,
+            y: 24.0,
+            width: 80.0,
+            height: 40.0,
+        }]
+    );
+}
+#[test]
+fn errors_when_rendering_image_with_missing_asset_alias() {
+    use crate::parser::{Page, TextValue};
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("missing_logo".to_string()),
+        x: NumberValue::Literal(0.0),
+        y: NumberValue::Literal(0.0),
+        width: NumberValue::Literal(50.0),
+        height: NumberValue::Literal(50.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_missing_image_alias_test.pdf");
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
+    };
+    let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::MissingAssetAlias { alias } if alias == "missing_logo"
+    ));
+}
+#[test]
+fn renders_pdf_with_registered_image_asset() {
+    use crate::fonts::RegisteredImageInfo;
+    use crate::parser::{AssetType, Page, TextValue};
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+    // create temp png
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let byte_len = fs::metadata(&image_path).unwrap().len();
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path.clone(),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len,
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 2,
+                height: 2,
+            }),
+        },
+    );
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets,
+    };
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("logo".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(80.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_image_render_test.pdf");
+    render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+    let metadata = fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = fs::remove_file(output_path);
+}

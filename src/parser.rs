@@ -123,6 +123,13 @@ pub enum DrawOp {
         width: NumberValue,
         height: NumberValue,
     },
+    Image {
+        asset: TextValue,
+        x: NumberValue,
+        y: NumberValue,
+        width: NumberValue,
+        height: NumberValue,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -562,6 +569,25 @@ impl Parser {
                             stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
                         }
                     }
+                }
+                TokenKind::Word(word) if word == "image" => {
+                    Self::require_stack(&stack, "image", 5, token)?;
+                    let height = Self::pop_number(&mut stack, "image", token)?;
+                    let width = Self::pop_number(&mut stack, "image", token)?;
+                    let y = Self::pop_number(&mut stack, "image", token)?;
+                    let x = Self::pop_number(&mut stack, "image", token)?;
+                    let asset = Self::pop_string(&mut stack, "image", token)?;
+
+                    Self::validate_literal_positive(&width, "image", "width", token)?;
+                    Self::validate_literal_positive(&height, "image", "height", token)?;
+
+                    ops.push(DrawOp::Image {
+                        asset,
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
                 }
                 TokenKind::Word(word) if word == "font" => {
                     Self::require_stack(&stack, "font", 1, token)?;
