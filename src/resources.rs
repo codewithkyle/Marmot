@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use cairo::ImageSurface;
 use image::{ImageFormat, ImageReader};
 use ttf_parser::{Face, name_id};
 
@@ -22,7 +21,6 @@ const MAX_IMAGE_PIXELS: u64 = 40_000_000; // NOTE: 40 MP
 pub struct RenderContext {
     pub fonts: HashMap<String, RegisteredFont>,
     pub assets: HashMap<String, RegisteredAsset>,
-    pub prepared_images: HashMap<String, ImageSurface>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,9 +51,6 @@ impl RenderContext {
     }
     pub fn resolve_asset(&self, name: &str) -> Option<&RegisteredAsset> {
         self.assets.get(name)
-    }
-    pub fn resolve_prepared_image(&self, name: &str) -> Option<&ImageSurface> {
-        self.prepared_images.get(name)
     }
 }
 
@@ -177,64 +172,9 @@ fn validate_image_asset(name: &str, path: &Path, bytes: &[u8]) -> Result<Registe
     })
 }
 
-fn premultiply(channel: u8, alpha: u8) -> u8 {
-    ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
-}
-
-fn prepare_image_surface(alias: &str, path: &Path) -> Result<ImageSurface> {
-    let dyn_img = image::open(path)
-        .with_context(|| format!("asset {alias} image decode failed at {}", path.display()))?;
-    let rgba = dyn_img.to_rgba8();
-    let (width, height) = rgba.dimensions();
-
-    let mut surface =
-        cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)
-            .with_context(|| {
-                format!(
-                    "asset {alias} cairo surface create failed at {}",
-                    path.display()
-                )
-            })?;
-    let stride = surface.stride() as usize;
-    let src = rgba.as_raw();
-
-    {
-        let mut dst = surface.data().map_err(|err| {
-            anyhow!(
-                "asset {alias} cairo surface data borrow failed at {}: {err}",
-                path.display()
-            )
-        })?;
-
-        for y in 0..height as usize {
-            let src_row = &src[y * width as usize * 4..(y + 1) * width as usize * 4];
-            let dst_row = &mut dst[y * stride..y * stride + width as usize * 4];
-
-            for x in 0..width as usize {
-                let si = x * 4;
-                let di = x * 4;
-
-                let r = src_row[si];
-                let g = src_row[si + 1];
-                let b = src_row[si + 2];
-                let a = src_row[si + 3];
-
-                dst_row[di] = premultiply(b, a);
-                dst_row[di + 1] = premultiply(g, a);
-                dst_row[di + 2] = premultiply(r, a);
-                dst_row[di + 3] = a;
-            }
-        }
-    }
-
-    surface.mark_dirty();
-    Ok(surface)
-}
-
 pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Result<RenderContext> {
     let mut fonts = HashMap::new();
     let mut assets = HashMap::new();
-    let mut prepared_images = HashMap::new();
 
     for font_decl in &template.fonts {
         if fonts.contains_key(&font_decl.name) {
@@ -267,15 +207,10 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
 
         let registered = register_asset(asset_decl.name.clone(), path, asset_decl.ty.clone())?;
 
-        if matches!(registered.ty, AssetType::Image) {
-            let surface = prepare_image_surface(&registered.name.clone(), &registered.path)?;
-            prepared_images.insert(registered.name.clone(), surface);
-        }
-
         assets.insert(asset_decl.name.clone(), registered);
     }
 
-    Ok(RenderContext { fonts, assets, prepared_images })
+    Ok(RenderContext { fonts, assets })
 }
 
 fn read_name(face: &Face, id: u16) -> Option<String> {

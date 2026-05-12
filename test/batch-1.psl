@@ -10,6 +10,9 @@ fonts begin
   barcode_font "fonts/LibreBarcode39.ttf"
   kablammo "fonts/Kablammo.ttf"
 end
+assets begin
+  fd image "assets/familydollar.webp"
+end
 draw begin
   1 1 1 rgb
   0 0 300 180 rect fill
@@ -36,4 +39,5 @@ draw begin
   none wrap
   (barcode_font) font
   $(barcode) 20 140 260 20 textbox
+  (fd) 210 100 60 60 image
 end

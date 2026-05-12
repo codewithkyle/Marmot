@@ -21,7 +21,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::render_pdf,
+    renderer::{render_pdf, render_pdf_with_cache, RenderCache},
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -52,6 +52,7 @@ struct BatchArgs {
     output_dir: PathBuf,
     output_name: String,
     jobs: usize,
+    enable_timings: bool,
 }
 
 fn main() -> Result<()> {
@@ -128,6 +129,12 @@ fn main() -> Result<()> {
                         .default_value("0")
                         .value_parser(clap::value_parser!(usize))
                         .help("Worker count. 0 = auto"),
+                )
+                .arg(
+                    Arg::new("timings")
+                        .long("timings")
+                        .action(ArgAction::SetTrue)
+                        .help("Print batch timing breakdown"),
                 ),
         )
         .get_matches();
@@ -192,15 +199,18 @@ struct BatchJob {
 }
 
 enum BatchResult {
-    Success { line_no: usize },
+    Success,
     Failed { line_no: usize, message: String },
-    WorkerFatal { message: String },
 }
 
 fn batch(args: BatchArgs) -> Result<()> {
+    let total_start = Instant::now();
+    let prep_start = Instant::now();
+
     let package = MarmotPackage::open(&args.package_file)?;
     let template_source = package.read_template_source()?;
     let template = Arc::new(parse_template_source(&template_source)?);
+    let render_context = Arc::new(build_render_context(&template, &package)?);
 
     let jobs = resolve_jobs(args.jobs);
     println!("batch: jobs={}", jobs);
@@ -222,33 +232,19 @@ fn batch(args: BatchArgs) -> Result<()> {
     let shared_rx = Arc::new(Mutex::new(job_rx));
     let mut workers = Vec::with_capacity(jobs);
 
+    let prep = prep_start.elapsed();
+    let process_start = Instant::now();
+
     for _ in 0..jobs {
         let rx = Arc::clone(&shared_rx);
         let tx = result_tx.clone();
         let template = Arc::clone(&template);
+        let render_context = Arc::clone(&render_context);
         let output_dir = Arc::clone(&output_dir);
         let output_name = Arc::clone(&output_name);
-        let package_file = args.package_file.clone();
 
         let handle = thread::spawn(move || {
-            let package = match MarmotPackage::open(&package_file) {
-                Ok(p) => p,
-                Err(err) => {
-                    let _ = tx.send(BatchResult::WorkerFatal {
-                        message: format!("worker render context build failed: {err:#}"),
-                    });
-                    return;
-                }
-            };
-            let render_context = match build_render_context(&template, &package) {
-                Ok(c) => c,
-                Err(err) => {
-                    let _ = tx.send(BatchResult::WorkerFatal {
-                        message: format!("worker render context build failed: {err:#}"),
-                    });
-                    return;
-                }
-            };
+            let mut render_cache = RenderCache::default();
 
             loop {
                 let job = {
@@ -268,6 +264,7 @@ fn batch(args: BatchArgs) -> Result<()> {
                     &render_context,
                     &output_dir,
                     &output_name,
+                    &mut render_cache,
                 );
 
                 if tx.send(result).is_err() {
@@ -314,17 +311,12 @@ fn batch(args: BatchArgs) -> Result<()> {
 
     while completed < dispatched {
         match result_rx.recv() {
-            Ok(BatchResult::Success { .. }) => {
+            Ok(BatchResult::Success) => {
                 success += 1;
                 completed += 1;
             }
             Ok(BatchResult::Failed { line_no, message }) => {
                 eprintln!("line {} {}", line_no, message);
-                failed += 1;
-                completed += 1;
-            }
-            Ok(BatchResult::WorkerFatal { message }) => {
-                eprintln!("worker fatal: {}", message);
                 failed += 1;
                 completed += 1;
             }
@@ -348,6 +340,16 @@ fn batch(args: BatchArgs) -> Result<()> {
         "batch complete: success={}, failed={}, skipped={}",
         success, failed, skipped
     );
+
+    let process = process_start.elapsed();
+    let total = total_start.elapsed();
+
+    if args.enable_timings {
+        eprintln!("timings:");
+        eprintln!("    prep:    {}", format_duration(prep));
+        eprintln!("    process: {}", format_duration(process));
+        eprintln!("    total:   {}", format_duration(total));
+    }
 
     if success == 0 && (failed > 0 || dispatched > 0) {
         bail!("batch produced no outputs");
@@ -411,7 +413,15 @@ fn render(args: RenderArgs) -> Result<()> {
 }
 
 fn format_duration(d: Duration) -> String {
-    format!("{:.3} ms", d.as_secs_f64() * 1000.0)
+    let seconds = d.as_secs_f64();
+
+    if seconds >= 60.0 {
+        format!("{:.3} min", seconds / 60.0)
+    } else if seconds >= 1.0 {
+        format!("{:.3} s", seconds)
+    } else {
+        format!("{:.3} ms", seconds * 1000.0)
+    }
 }
 
 fn check(args: CheckArgs) -> Result<()> {
@@ -474,6 +484,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .expect("output-name is required")
         .into();
     let jobs = *matches.get_one::<usize>("jobs").expect("jobs has default");
+    let enable_timings = *matches.get_one::<bool>("timings").unwrap_or(&false);
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -484,6 +495,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         output_dir,
         output_name,
         jobs,
+        enable_timings,
     })
 }
 
@@ -653,6 +665,7 @@ fn process_batch_line(
     render_context: &RenderContext,
     output_dir: &Path,
     output_name_template: &str,
+    render_cache: &mut RenderCache,
 ) -> BatchResult {
     let record: Value = match serde_json::from_str(&line) {
         Ok(v) => v,
@@ -690,14 +703,15 @@ fn process_batch_line(
 
     let output_path = output_dir.join(file_name);
 
-    match render_pdf(
+    match render_pdf_with_cache(
         &template.page,
         &template.draw,
         &output_path,
         Some(&record),
         &render_context,
+        render_cache,
     ) {
-        Ok(()) => BatchResult::Success { line_no },
+        Ok(()) => BatchResult::Success,
         Err(err) => BatchResult::Failed {
             line_no,
             message: format!("render failed for {}: {:?}", output_path.display(), err),

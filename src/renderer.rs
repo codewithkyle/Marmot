@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test;
 
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use crate::parser::{AssetType, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
@@ -106,10 +106,17 @@ pub enum RenderError {
     MissingAssetAlias {
         alias: String,
     },
-    MissingPreparedImage {
+    ImageDecode {
         alias: String,
+        path: PathBuf,
+        message: String,
     },
     Cairo(cairo::Error),
+}
+
+#[derive(Default)]
+pub struct RenderCache {
+    image_surfaces: HashMap<String, cairo::ImageSurface>,
 }
 
 impl From<cairo::Error> for RenderError {
@@ -589,9 +596,76 @@ fn fitted_font_size(
     }
 }
 
+fn premultiply(channel: u8, alpha: u8) -> u8 {
+    ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
+}
+
+fn load_image_surface(alias: &str, path: &Path) -> Result<cairo::ImageSurface, RenderError> {
+    let dyn_img = image::open(path).map_err(|err| RenderError::ImageDecode {
+        alias: alias.to_string(),
+        path: path.to_path_buf(),
+        message: err.to_string(),
+    })?;
+
+    let rgba = dyn_img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)?;
+    let stride = surface.stride() as usize;
+    let src = rgba.as_raw();
+
+    {
+        let mut dst = surface.data().map_err(|err| RenderError::ImageDecode {
+            alias: alias.to_string(),
+            path: path.to_path_buf(),
+            message: format!("cairo surface borrow failed: {err}"),
+        })?;
+
+        for y in 0..height as usize {
+            let src_row = &src[y * width as usize * 4..(y + 1) * width as usize * 4];
+            let dst_row = &mut dst[y * stride..y * stride + width as usize * 4];
+
+            for x in 0..width as usize {
+                let si = x * 4;
+                let di = x * 4;
+
+                let r = src_row[si];
+                let g = src_row[si + 1];
+                let b = src_row[si + 2];
+                let a = src_row[si + 3];
+
+                dst_row[di] = premultiply(b, a);
+                dst_row[di + 1] = premultiply(g, a);
+                dst_row[di + 2] = premultiply(r, a);
+                dst_row[di + 3] = a;
+            }
+        }
+    }
+
+    surface.mark_dirty();
+    Ok(surface)
+}
+
+fn get_or_load_image_surface<'a>(
+    cache: &'a mut RenderCache,
+    alias: &str,
+    path: &Path,
+) -> Result<&'a cairo::ImageSurface, RenderError> {
+    if !cache.image_surfaces.contains_key(alias) {
+        let surface = load_image_surface(alias, path)?;
+        cache.image_surfaces.insert(alias.to_string(), surface);
+    }
+
+    Ok(cache
+        .image_surfaces
+        .get(alias)
+        .expect("cache insert must exist"))
+}
+
 fn render_image(
     ctx: &Context,
     context: &RenderContext,
+    cache: &mut RenderCache,
     asset: &str,
     fit: ImageFit,
     x: f64,
@@ -621,12 +695,7 @@ fn render_image(
         });
     }
 
-    let surface =
-        context
-            .resolve_prepared_image(asset)
-            .ok_or_else(|| RenderError::MissingPreparedImage {
-                alias: asset.to_string(),
-            })?;
+    let surface = get_or_load_image_surface(cache, asset, &registered.path)?;
     let src_w = surface.width() as f64;
     let src_h = surface.height() as f64;
 
@@ -720,6 +789,7 @@ fn execute_render_ops(
     ctx: &Context,
     render_ops: &[RenderOp],
     context: &RenderContext,
+    cache: &mut RenderCache,
 ) -> Result<(), RenderError> {
     let mut state = RenderState::default();
 
@@ -788,7 +858,17 @@ fn execute_render_ops(
                 width,
                 height,
             } => {
-                render_image(ctx, context, asset, state.image_fit, *x, *y, *width, *height)?;
+                render_image(
+                    ctx,
+                    context,
+                    cache,
+                    asset,
+                    state.image_fit,
+                    *x,
+                    *y,
+                    *width,
+                    *height,
+                )?;
             }
             RenderOp::TextBox {
                 text,
@@ -805,6 +885,26 @@ fn execute_render_ops(
     Ok(())
 }
 
+pub fn render_pdf_with_cache(
+    page: &Page,
+    draw_ops: &[DrawOp],
+    output_path: &Path,
+    data: Option<&Value>,
+    context: &RenderContext,
+    cache: &mut RenderCache,
+) -> Result<(), RenderError> {
+    let render_ops = lower_draw_ops(draw_ops, data)?;
+
+    let surface = PdfSurface::new(page.width, page.height, output_path)?;
+    let ctx = Context::new(&surface)?;
+
+    execute_render_ops(&ctx, &render_ops, context, cache)?;
+
+    surface.finish();
+
+    Ok(())
+}
+
 pub fn render_pdf(
     page: &Page,
     draw_ops: &[DrawOp],
@@ -812,14 +912,6 @@ pub fn render_pdf(
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
-    let render_ops = lower_draw_ops(draw_ops, data)?;
-
-    let surface = PdfSurface::new(page.width, page.height, output_path)?;
-    let ctx = Context::new(&surface)?;
-
-    execute_render_ops(&ctx, &render_ops, context)?;
-
-    surface.finish();
-
-    Ok(())
+    let mut cache = RenderCache::default();
+    render_pdf_with_cache(page, draw_ops, output_path, data, context, &mut cache)
 }
