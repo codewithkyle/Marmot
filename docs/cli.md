@@ -22,6 +22,7 @@ Basic workflow:
 2. Package it into a `.marmot` archive.
 3. Validate JSON data against template slots.
 4. Render a PDF.
+5. (Optional) Batch-render many PDFs from JSONL records.
 
 Example:
 
@@ -29,6 +30,7 @@ Example:
 cargo run -- pack test/test-1.psl demo
 cargo run -- check demo.marmot data/test-1.json
 cargo run -- render demo.marmot data/test-1.json --output out.pdf
+cargo run -- batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf" --timings
 ```
 
 ## Command Reference
@@ -117,6 +119,50 @@ marmot pack test/test-6.psl label -f fonts/Kablammo.ttf -o build
 
 Creates: `build/label.marmot`
 
+## `marmot batch`
+
+Render many PDFs from one package and a JSONL records file.
+
+```bash
+marmot batch [OPTIONS] <package> <records> --output-dir <dir> --output-name <template>
+```
+
+Options:
+
+- `--output-dir <DIR>`: destination directory for generated PDFs (must exist)
+- `--output-name <TEMPLATE>`: filename template supporting `{id}` and `{index}`
+- `-j, --jobs <N>`: worker count (`0` = auto-detect CPU parallelism)
+- `--trust-data`: skip upfront per-record slot validation in batch mode
+- `--timings`: print stage timings and per-record render latency distribution
+
+Examples:
+
+```bash
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf"
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "label-{index}.pdf" -j 16 --timings
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf" --trust-data --timings
+```
+
+Behavior:
+
+- Reads `<records>` as JSON Lines (one JSON object per line).
+- Ignores blank lines.
+- Uses a worker pool to render records in parallel.
+- Produces one PDF per successful record.
+- Prints `success`, `failed`, and `skipped` counts at completion.
+
+Batch timing output (`--timings`) includes:
+
+- `prep`, `process`, and `total` wall-clock stages.
+- Render latency stats across rendered records: `avg`, `min`, `max`, `p90`, `p95`, `p99`, `p99.9`.
+
+Output name template notes:
+
+- `{index}` uses 1-based input line number.
+- `{id}` requires an `id` field in each record and must be string/number/bool.
+- Output names are sanitized to avoid invalid filesystem characters.
+- Absolute paths and `..` segments are rejected.
+
 ## Package Format
 
 A `.marmot` file is a zip archive with at least:
@@ -149,7 +195,9 @@ Common validation behavior:
 
 - Package path must exist, be a file, and end with `.marmot`.
 - Data path (for `check` or `render` with data) must exist and be a file.
+- Records path (for `batch`) must exist and be a file.
 - Render output parent directory must already exist.
+- Batch output directory must already exist.
 - `pack --output-dir` must exist and be a directory.
 - `pack` output file extension must be `.marmot`.
 
@@ -157,7 +205,7 @@ Common validation behavior:
 
 ## `package must end with .marmot`
 
-- Cause: `check`/`render` package path missing `.marmot` extension.
+- Cause: `check`/`render`/`batch` package path missing `.marmot` extension.
 - Fix: use a valid `.marmot` package path.
 
 ## `package is missing template.psl`
@@ -180,10 +228,20 @@ Common validation behavior:
 - Cause: duplicated font alias in template or repeated file names during packaging.
 - Fix: make aliases and package filenames unique.
 
+## `record missing id field required by output template`
+
+- Cause: `--output-name` contains `{id}` but a JSONL record has no `id` key.
+- Fix: add `id` to each record or use `{index}` in output template.
+
+## `batch produced no outputs`
+
+- Cause: all records failed before/during render.
+- Fix: inspect per-line errors, validate sample records with `marmot check`, then retry.
+
 ## What Is Implemented Today
 
-- Commands: `check`, `render`, `pack`
-- Input data format: JSON object
+- Commands: `check`, `render`, `pack`, `batch`
+- Input data formats: JSON object (`check`/`render`) and JSONL records (`batch`)
 - Output format: PDF
 - Packaged fonts: supported
-- Packaged assets: can be packaged, but there is no draw-time asset/image operator yet
+- Packaged image assets + draw-time image operator: supported

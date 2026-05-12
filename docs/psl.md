@@ -22,12 +22,13 @@ Current parser expects this order:
 2. `page <width> <height>`
 3. Optional `slots begin ... end`
 4. Optional `fonts begin ... end`
-5. Required `draw begin ... end`
+5. Optional `assets begin ... end`
+6. Required `draw begin ... end`
 
 Notes:
 
-- `slots` and `fonts` are optional blocks.
-- If both are present, `slots` must come before `fonts`.
+- `slots`, `fonts`, and `assets` are optional blocks.
+- If present, block order is fixed: `slots` -> `fonts` -> `assets` -> `draw`.
 
 ## Lexical Tokens
 
@@ -160,6 +161,33 @@ Rules:
 - Paths are resolved inside the `.marmot` package.
 - Duplicate aliases are rejected at render-context build time.
 
+## Assets Block
+
+Syntax:
+
+```psl
+assets begin
+  <alias> image "<package-relative-path>"
+  ...
+end
+```
+
+Example:
+
+```psl
+assets begin
+  logo image "assets/logo.png"
+end
+```
+
+Rules:
+
+- Alias must be a word token.
+- Asset type is currently `image`.
+- Path must be a string token.
+- Paths are resolved inside the `.marmot` package.
+- Duplicate aliases are rejected at render-context build time.
+
 ## Draw Block
 
 Syntax:
@@ -248,6 +276,21 @@ Example:
 $(product_name) 20 40 260 40 textbox
 ```
 
+## Image drawing
+
+- `image` consumes five values:
+  - `asset x y width height`
+  - `asset` is a text value (literal or string slot)
+  - `width` and `height` must be `> 0` for literals
+- `contain imagefit`, `cover imagefit`, `stretch imagefit` set image fitting mode
+
+Example:
+
+```psl
+contain imagefit
+(logo) 20 20 120 60 image
+```
+
 ## Runtime Defaults
 
 Initial render state defaults:
@@ -259,6 +302,7 @@ Initial render state defaults:
 - line break mode: `word`
 - text fit mode: `fixed`
 - text fit min/max: `4` and `96`
+- image fit mode: `contain`
 - text clipping inside textbox: enabled
 
 ## Slot Use in `draw`
@@ -301,6 +345,10 @@ When `$(slot)` appears in `draw`:
 - Missing data for slot resolution
 - Missing slot field in JSON
 - Invalid text or number JSON value for slot
+- Missing asset alias
+- Wrong asset type
+- Invalid image geometry
+- Image decode/format issues
 - Cairo rendering errors
 
 ## Full Example
@@ -339,8 +387,6 @@ end
 
 The following appear in older examples but are not implemented in current parser/renderer:
 
-- `assets begin ... end`
-- image drawing operators
 - `cmyk`, `grey`, `concat`
 
 Use only operators listed in this document for reliable results.
