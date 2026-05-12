@@ -748,8 +748,8 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
 
 #[test]
 fn renders_pdf_with_registered_image_asset() {
-    use crate::resources::RegisteredImageInfo;
     use crate::parser::{AssetType, Page, TextValue};
+    use crate::resources::RegisteredImageInfo;
     use image::{ImageFormat, Rgba, RgbaImage};
     use std::fs;
     // create temp png
@@ -830,8 +830,8 @@ fn renders_pdf_with_registered_image_asset() {
 
 #[test]
 fn errors_when_prepared_image_missing_for_registered_asset() {
-    use crate::resources::{RegisteredAsset, RegisteredImageInfo};
     use crate::parser::{AssetType, Page, TextValue};
+    use crate::resources::{RegisteredAsset, RegisteredImageInfo};
     let page = Page {
         width: 100.0,
         height: 100.0,
@@ -866,4 +866,18 @@ fn errors_when_prepared_image_missing_for_registered_asset() {
     let out = std::env::temp_dir().join("marmot_missing_prepared_image_test.pdf");
     let err = render_pdf(&page, &draw_ops, &out, None, &context).unwrap_err();
     assert!(matches!(err, RenderError::MissingPreparedImage { alias } if alias == "logo"));
+}
+
+#[test]
+fn lowers_set_imagefit() {
+    let draw_ops = vec![DrawOp::SetImageFit {
+        fit: ImageFit::Cover,
+    }];
+    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
+    assert_eq!(
+        render_ops,
+        vec![RenderOp::SetImageFit {
+            fit: ImageFit::Cover,
+        }]
+    );
 }

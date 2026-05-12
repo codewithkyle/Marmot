@@ -1,8 +1,9 @@
-#[cfg(test)] mod test;
+#[cfg(test)]
+mod test;
 
 use crate::{
-    lexer::{Token, TokenKind},
-    renderer::{LineBreakMode, TextAlign, TextFit, VerticalAlign},
+    lexer::{Lexer, Token, TokenKind},
+    renderer::{ImageFit, LineBreakMode, TextAlign, TextFit, VerticalAlign},
 };
 use std::collections::HashMap;
 
@@ -13,7 +14,7 @@ pub struct Template {
     pub slots: Vec<SlotDecl>,
     pub draw: Vec<DrawOp>,
     pub fonts: Vec<FontDecl>,
-    pub assets: Vec<AssetDecl>
+    pub assets: Vec<AssetDecl>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,9 +32,8 @@ pub struct AssetDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssetType {
-    Image
+    Image,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 enum StackValue {
@@ -102,6 +102,9 @@ pub enum DrawOp {
     SetFontFamily {
         font: TextValue,
     },
+    SetImageFit {
+        fit: ImageFit,
+    },
     LinePath {
         x1: NumberValue,
         y1: NumberValue,
@@ -129,7 +132,7 @@ pub enum DrawOp {
         y: NumberValue,
         width: NumberValue,
         height: NumberValue,
-    }
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -348,15 +351,13 @@ impl Parser {
         let token = self.advance();
 
         match &token.kind {
-            TokenKind::Word(value) => {
-                match value.as_str() {
-                    "image" => Ok(AssetType::Image),
-                    found => Err(ParseError::UnknownAssetType {
-                        found: found.to_string(),
-                        line: token.line,
-                        column: token.column,
-                    })
-                }
+            TokenKind::Word(value) => match value.as_str() {
+                "image" => Ok(AssetType::Image),
+                found => Err(ParseError::UnknownAssetType {
+                    found: found.to_string(),
+                    line: token.line,
+                    column: token.column,
+                }),
             },
             found => Err(ParseError::ExpectedAnyWord {
                 found: found.clone(),
@@ -551,6 +552,11 @@ impl Parser {
                 }
                 TokenKind::String(value) => {
                     stack.push(StackValue::Text(TextValue::Literal(value.clone())));
+                }
+                TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
+                    let fit = ImageFit::from_word(word).unwrap();
+                    self.expect_word("imagefit")?;
+                    ops.push(DrawOp::SetImageFit { fit });
                 }
                 TokenKind::Slot(slot_name) => {
                     let Some(slot_ty) = slots.get(slot_name) else {
@@ -929,4 +935,34 @@ impl Parser {
 
         Ok(Page { width, height })
     }
+}
+
+#[test]
+fn parses_imagefit_commands() {
+    let source = r#"%!PSL 0.1
+page 100 100
+draw begin
+  contain imagefit
+  cover imagefit
+  stretch imagefit
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+    assert_eq!(
+        template.draw,
+        vec![
+            DrawOp::SetImageFit {
+                fit: ImageFit::Contain
+            },
+            DrawOp::SetImageFit {
+                fit: ImageFit::Cover
+            },
+            DrawOp::SetImageFit {
+                fit: ImageFit::Stretch
+            },
+        ]
+    );
 }

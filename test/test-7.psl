@@ -34,9 +34,11 @@ draw begin
 
   0 0 1 rgb
   100 120 80 85 rect fill
+  stretch imagefit
   (fd) 100 120 80 85 image
 
   0 0 1 rgb
   0 330 160 60 rect fill
+  cover imagefit
   (sn) 20 300 160 60 image
 end

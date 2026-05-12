@@ -43,6 +43,9 @@ pub enum RenderOp {
     SetFontFamily {
         font: String,
     },
+    SetImageFit {
+        fit: ImageFit,
+    },
     StrokeLine {
         x1: f64,
         y1: f64,
@@ -100,11 +103,6 @@ pub enum RenderError {
         width: f64,
         height: f64,
     },
-    ImageDecode {
-        alias: String,
-        path: PathBuf,
-        message: String,
-    },
     MissingAssetAlias {
         alias: String,
     },
@@ -117,6 +115,24 @@ pub enum RenderError {
 impl From<cairo::Error> for RenderError {
     fn from(err: cairo::Error) -> Self {
         RenderError::Cairo(err)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImageFit {
+    Contain,
+    Cover,
+    Stretch,
+}
+
+impl ImageFit {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "contain" => Some(Self::Contain),
+            "cover" => Some(Self::Cover),
+            "stretch" => Some(Self::Stretch),
+            _ => None,
+        }
     }
 }
 
@@ -227,6 +243,7 @@ struct RenderState {
     text_fit: TextFit,
     text_fit_min_size: f64,
     text_fit_max_size: f64,
+    image_fit: ImageFit,
 }
 
 impl Default for RenderState {
@@ -241,6 +258,7 @@ impl Default for RenderState {
             text_fit: TextFit::Fixed,
             text_fit_min_size: 4.0,
             text_fit_max_size: 96.0,
+            image_fit: ImageFit::Contain,
         }
     }
 }
@@ -284,6 +302,9 @@ fn lower_draw_ops(draw_ops: &[DrawOp], data: Option<&Value>) -> Result<Vec<Rende
 
     for draw_op in draw_ops {
         match draw_op {
+            DrawOp::SetImageFit { fit } => {
+                render_ops.push(RenderOp::SetImageFit { fit: *fit });
+            }
             DrawOp::SetFontFamily { font } => {
                 render_ops.push(RenderOp::SetFontFamily {
                     font: eval_text(font, data)?,
@@ -571,6 +592,7 @@ fn render_image(
     ctx: &Context,
     context: &RenderContext,
     asset: &str,
+    fit: ImageFit,
     x: f64,
     y: f64,
     width: f64,
@@ -607,12 +629,32 @@ fn render_image(
     let src_w = surface.width() as f64;
     let src_h = surface.height() as f64;
 
+    let (draw_x, draw_y, scale_x, scale_y) = match fit {
+        ImageFit::Stretch => (x, y, width / src_w, height / src_h),
+        ImageFit::Contain => {
+            let s = (width / src_w).min(height / src_h);
+            let draw_w = src_w * s;
+            let draw_h = src_h * s;
+            let dx = x + (width - draw_w) / 2.0;
+            let dy = y + (height - draw_h) / 2.0;
+            (dx, dy, s, s)
+        }
+        ImageFit::Cover => {
+            let s = (width / src_w).max(height / src_h);
+            let draw_w = src_w * s;
+            let draw_h = src_h * s;
+            let dx = x + (width - draw_w) / 2.0;
+            let dy = y + (height - draw_h) / 2.0;
+            (dx, dy, s, s)
+        }
+    };
+
     ctx.save()?;
     ctx.rectangle(x, y, width, height);
     ctx.clip();
 
-    ctx.translate(x, y);
-    ctx.scale(width / src_w, height / src_h);
+    ctx.translate(draw_x, draw_y);
+    ctx.scale(scale_x, scale_y);
 
     let pattern = cairo::SurfacePattern::create(surface);
     pattern.set_extend(cairo::Extend::Pad);
@@ -682,6 +724,9 @@ fn execute_render_ops(
 
     for op in render_ops {
         match op {
+            RenderOp::SetImageFit { fit } => {
+                state.image_fit = *fit;
+            }
             RenderOp::SetFontFamily { font } => {
                 state.font = resolve_current_font(context, font);
             }
@@ -742,7 +787,7 @@ fn execute_render_ops(
                 width,
                 height,
             } => {
-                render_image(ctx, context, asset, *x, *y, *width, *height)?;
+                render_image(ctx, context, asset, state.image_fit, *x, *y, *width, *height)?;
             }
             RenderOp::TextBox {
                 text,
