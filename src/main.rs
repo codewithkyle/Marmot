@@ -52,6 +52,7 @@ struct BatchArgs {
     output_dir: PathBuf,
     output_name: String,
     jobs: usize,
+    trust_data: bool,
     enable_timings: bool,
 }
 
@@ -135,6 +136,12 @@ fn main() -> Result<()> {
                         .long("timings")
                         .action(ArgAction::SetTrue)
                         .help("Print batch timing breakdown"),
+                )
+                .arg(
+                    Arg::new("trust-data")
+                        .long("trust-data")
+                        .action(ArgAction::SetTrue)
+                        .help("Skip upfront slot validation for each record"),
                 ),
         )
         .get_matches();
@@ -199,8 +206,14 @@ struct BatchJob {
 }
 
 enum BatchResult {
-    Success,
-    Failed { line_no: usize, message: String },
+    Success {
+        render_time: Duration,
+    },
+    Failed {
+        line_no: usize,
+        message: String,
+        render_time: Option<Duration>,
+    },
 }
 
 fn batch(args: BatchArgs) -> Result<()> {
@@ -225,6 +238,7 @@ fn batch(args: BatchArgs) -> Result<()> {
 
     let output_dir = Arc::new(args.output_dir.clone());
     let output_name = Arc::new(args.output_name.clone());
+    let trust_data = args.trust_data;
 
     let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
     let (result_tx, result_rx) = mpsc::channel::<BatchResult>();
@@ -264,6 +278,7 @@ fn batch(args: BatchArgs) -> Result<()> {
                     &render_context,
                     &output_dir,
                     &output_name,
+                    trust_data,
                     &mut render_cache,
                 );
 
@@ -308,17 +323,26 @@ fn batch(args: BatchArgs) -> Result<()> {
     let mut success = 0usize;
     let mut failed = 0usize;
     let mut completed = 0usize;
+    let mut render_times = Vec::with_capacity(dispatched);
 
     while completed < dispatched {
         match result_rx.recv() {
-            Ok(BatchResult::Success) => {
+            Ok(BatchResult::Success { render_time }) => {
                 success += 1;
                 completed += 1;
+                render_times.push(render_time);
             }
-            Ok(BatchResult::Failed { line_no, message }) => {
+            Ok(BatchResult::Failed {
+                line_no,
+                message,
+                render_time,
+            }) => {
                 eprintln!("line {} {}", line_no, message);
                 failed += 1;
                 completed += 1;
+                if let Some(render_time) = render_time {
+                    render_times.push(render_time);
+                }
             }
             Err(_) => {
                 bail!(
@@ -345,10 +369,22 @@ fn batch(args: BatchArgs) -> Result<()> {
     let total = total_start.elapsed();
 
     if args.enable_timings {
+        let render_stats = summarize_render_times(&render_times);
+
         eprintln!("timings:");
         eprintln!("    prep:    {}", format_duration(prep));
         eprintln!("    process: {}", format_duration(process));
         eprintln!("    total:   {}", format_duration(total));
+
+        if let Some(stats) = render_stats {
+            eprintln!("    render avg:   {}", format_duration(stats.avg));
+            eprintln!("    render min:   {}", format_duration(stats.min));
+            eprintln!("    render max:   {}", format_duration(stats.max));
+            eprintln!("    render p90:   {}", format_duration(stats.p90));
+            eprintln!("    render p95:   {}", format_duration(stats.p95));
+            eprintln!("    render p99:   {}", format_duration(stats.p99));
+            eprintln!("    render p99.9: {}", format_duration(stats.p999));
+        }
     }
 
     if success == 0 && (failed > 0 || dispatched > 0) {
@@ -484,6 +520,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .expect("output-name is required")
         .into();
     let jobs = *matches.get_one::<usize>("jobs").expect("jobs has default");
+    let trust_data = *matches.get_one::<bool>("trust-data").unwrap_or(&false);
     let enable_timings = *matches.get_one::<bool>("timings").unwrap_or(&false);
 
     ensure_file_exists(&records_file)?;
@@ -495,6 +532,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         output_dir,
         output_name,
         jobs,
+        trust_data,
         enable_timings,
     })
 }
@@ -665,6 +703,7 @@ fn process_batch_line(
     render_context: &RenderContext,
     output_dir: &Path,
     output_name_template: &str,
+    trust_data: bool,
     render_cache: &mut RenderCache,
 ) -> BatchResult {
     let record: Value = match serde_json::from_str(&line) {
@@ -673,6 +712,7 @@ fn process_batch_line(
             return BatchResult::Failed {
                 line_no,
                 message: format!("json parse error: {err}"),
+                render_time: None,
             };
         }
     };
@@ -681,14 +721,18 @@ fn process_batch_line(
         return BatchResult::Failed {
             line_no,
             message: "json must be object".to_string(),
+            render_time: None,
         };
     }
 
-    if let Err(errors) = validate_data(&template, &record) {
-        return BatchResult::Failed {
-            line_no,
-            message: format!("validation failed: {:?}", errors),
-        };
+    if !trust_data {
+        if let Err(errors) = validate_data(&template, &record) {
+            return BatchResult::Failed {
+                line_no,
+                message: format!("validation failed: {:?}", errors),
+                render_time: None,
+            };
+        }
     }
 
     let file_name = match format_output_name(output_name_template, &record, line_no) {
@@ -697,11 +741,14 @@ fn process_batch_line(
             return BatchResult::Failed {
                 line_no,
                 message: format!("output-name error: {err}",),
+                render_time: None,
             };
         }
     };
 
     let output_path = output_dir.join(file_name);
+
+    let render_start = Instant::now();
 
     match render_pdf_with_cache(
         &template.page,
@@ -711,10 +758,60 @@ fn process_batch_line(
         &render_context,
         render_cache,
     ) {
-        Ok(()) => BatchResult::Success,
+        Ok(()) => BatchResult::Success {
+            render_time: render_start.elapsed(),
+        },
         Err(err) => BatchResult::Failed {
             line_no,
             message: format!("render failed for {}: {:?}", output_path.display(), err),
+            render_time: Some(render_start.elapsed()),
         },
     }
+}
+
+struct RenderStats {
+    avg: Duration,
+    min: Duration,
+    max: Duration,
+    p90: Duration,
+    p95: Duration,
+    p99: Duration,
+    p999: Duration,
+}
+
+fn summarize_render_times(render_times: &[Duration]) -> Option<RenderStats> {
+    if render_times.is_empty() {
+        return None;
+    }
+
+    let mut sorted = render_times.to_vec();
+    sorted.sort_unstable();
+
+    let min = sorted[0];
+    let max = sorted[sorted.len() - 1];
+
+    let total_nanos: u128 = sorted.iter().map(Duration::as_nanos).sum();
+    let avg_nanos = total_nanos / sorted.len() as u128;
+    let avg = Duration::from_nanos(avg_nanos.min(u64::MAX as u128) as u64);
+
+    Some(RenderStats {
+        avg,
+        min,
+        max,
+        p90: percentile_duration(&sorted, 0.90),
+        p95: percentile_duration(&sorted, 0.95),
+        p99: percentile_duration(&sorted, 0.99),
+        p999: percentile_duration(&sorted, 0.999),
+    })
+}
+
+fn percentile_duration(sorted: &[Duration], percentile: f64) -> Duration {
+    let n = sorted.len();
+    if n == 0 {
+        return Duration::from_nanos(0);
+    }
+
+    let rank = (percentile.clamp(0.0, 1.0) * n as f64).ceil() as usize;
+    let index = rank.saturating_sub(1).min(n - 1);
+    sorted[index]
 }

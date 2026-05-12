@@ -738,6 +738,7 @@ fn render_image(
 }
 
 fn render_textbox(
+    layout: &pango::Layout,
     ctx: &Context,
     state: &RenderState,
     text: &str,
@@ -746,10 +747,8 @@ fn render_textbox(
     width: f64,
     height: f64,
 ) -> Result<(), RenderError> {
-    let layout = pangocairo::functions::create_layout(ctx);
-
-    let font_size = fitted_font_size(&layout, state, text, width, height);
-    configure_text_layout(&layout, state, text, font_size, width, height);
+    let font_size = fitted_font_size(layout, state, text, width, height);
+    configure_text_layout(layout, state, text, font_size, width, height);
 
     ctx.save()?;
 
@@ -768,7 +767,7 @@ fn render_textbox(
     };
 
     ctx.move_to(x, draw_y);
-    pangocairo::functions::show_layout(ctx, &layout);
+    pangocairo::functions::show_layout(ctx, layout);
 
     ctx.restore()?;
 
@@ -785,99 +784,156 @@ fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont
     }
 }
 
-fn execute_render_ops(
+fn execute_draw_ops(
     ctx: &Context,
-    render_ops: &[RenderOp],
+    draw_ops: &[DrawOp],
+    data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
 ) -> Result<(), RenderError> {
     let mut state = RenderState::default();
+    let mut pending_path: Option<PendingPath> = None;
+    let layout = pangocairo::functions::create_layout(ctx);
 
-    for op in render_ops {
+    for op in draw_ops {
         match op {
-            RenderOp::SetImageFit { fit } => {
+            DrawOp::SetImageFit { fit } => {
                 state.image_fit = *fit;
             }
-            RenderOp::SetFontFamily { font } => {
-                state.font = resolve_current_font(context, font);
+            DrawOp::SetFontFamily { font } => {
+                let requested = eval_text(font, data)?;
+                state.font = resolve_current_font(context, &requested);
             }
-            RenderOp::SetTextFitMaxSize { max } => {
-                state.text_fit_max_size = *max;
+            DrawOp::SetTextFitMaxSize { max } => {
+                state.text_fit_max_size = eval_number(max, data)?;
             }
-            RenderOp::SetTextFitMinSize { min } => {
-                state.text_fit_min_size = *min;
+            DrawOp::SetTextFitMinSize { min } => {
+                state.text_fit_min_size = eval_number(min, data)?;
             }
-            RenderOp::SetTextFit { fit } => {
+            DrawOp::SetTextFit { fit } => {
                 state.text_fit = *fit;
             }
-            RenderOp::SetLineBreakMode { line_break } => {
+            DrawOp::SetLineBreakMode { line_break } => {
                 state.line_break = *line_break;
             }
-            RenderOp::SetVerticalAlignment { align } => {
+            DrawOp::SetVerticalAlignment { align } => {
                 state.vertical_align = *align;
             }
-            RenderOp::SetTextAlignment { align } => {
+            DrawOp::SetTextAlignment { align } => {
                 state.text_align = *align;
             }
-            RenderOp::SetRgb { r, g, b } => {
-                ctx.set_source_rgb(*r, *g, *b);
+            DrawOp::SetRgb { r, g, b } => {
+                ctx.set_source_rgb(
+                    eval_number(r, data)?,
+                    eval_number(g, data)?,
+                    eval_number(b, data)?,
+                );
             }
-            RenderOp::SetStrokeWidth { width } => {
-                ctx.set_line_width(*width);
+            DrawOp::SetStrokeWidth { width } => {
+                ctx.set_line_width(eval_number(width, data)?);
             }
-            RenderOp::SetFontSize { size } => {
-                state.font_size = *size;
+            DrawOp::SetFontSize { size } => {
+                state.font_size = eval_number(size, data)?;
             }
-            RenderOp::StrokeLine { x1, y1, x2, y2 } => {
-                ctx.move_to(*x1, *y1);
-                ctx.line_to(*x2, *y2);
-                ctx.stroke()?;
+            DrawOp::LinePath { x1, y1, x2, y2 } => {
+                pending_path = Some(PendingPath::Line {
+                    x1: eval_number(x1, data)?,
+                    y1: eval_number(y1, data)?,
+                    x2: eval_number(x2, data)?,
+                    y2: eval_number(y2, data)?,
+                });
             }
-            RenderOp::StrokeRect {
+            DrawOp::RectPath {
                 x,
                 y,
                 width,
                 height,
             } => {
-                ctx.rectangle(*x, *y, *width, *height);
-                ctx.stroke()?;
+                pending_path = Some(PendingPath::Rect {
+                    x: eval_number(x, data)?,
+                    y: eval_number(y, data)?,
+                    width: eval_number(width, data)?,
+                    height: eval_number(height, data)?,
+                });
             }
-            RenderOp::FillRect {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                ctx.rectangle(*x, *y, *width, *height);
-                ctx.fill()?;
+            DrawOp::Stroke => {
+                let path = pending_path
+                    .take()
+                    .expect("parser should prevent stroke without a current path");
+                match path {
+                    PendingPath::Line { x1, y1, x2, y2 } => {
+                        ctx.move_to(x1, y1);
+                        ctx.line_to(x2, y2);
+                        ctx.stroke()?;
+                    }
+                    PendingPath::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } => {
+                        ctx.rectangle(x, y, width, height);
+                        ctx.stroke()?;
+                    }
+                }
             }
-            RenderOp::Image {
+            DrawOp::Fill => {
+                let path = pending_path
+                    .take()
+                    .expect("parser should prevent fill without a current path");
+                match path {
+                    PendingPath::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } => {
+                        ctx.rectangle(x, y, width, height);
+                        ctx.fill()?;
+                    }
+                    PendingPath::Line { .. } => {
+                        panic!("parser should prevent filling a line");
+                    }
+                }
+            }
+            DrawOp::Image {
                 asset,
                 x,
                 y,
                 width,
                 height,
             } => {
+                let asset = eval_text(asset, data)?;
                 render_image(
                     ctx,
                     context,
                     cache,
-                    asset,
+                    &asset,
                     state.image_fit,
-                    *x,
-                    *y,
-                    *width,
-                    *height,
+                    eval_number(x, data)?,
+                    eval_number(y, data)?,
+                    eval_number(width, data)?,
+                    eval_number(height, data)?,
                 )?;
             }
-            RenderOp::TextBox {
+            DrawOp::TextBox {
                 text,
                 x,
                 y,
                 width,
                 height,
             } => {
-                render_textbox(ctx, &state, text, *x, *y, *width, *height)?;
+                let text = eval_text(text, data)?;
+                render_textbox(
+                    &layout,
+                    ctx,
+                    &state,
+                    &text,
+                    eval_number(x, data)?,
+                    eval_number(y, data)?,
+                    eval_number(width, data)?,
+                    eval_number(height, data)?,
+                )?;
             }
         }
     }
@@ -893,12 +949,10 @@ pub fn render_pdf_with_cache(
     context: &RenderContext,
     cache: &mut RenderCache,
 ) -> Result<(), RenderError> {
-    let render_ops = lower_draw_ops(draw_ops, data)?;
-
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
 
-    execute_render_ops(&ctx, &render_ops, context, cache)?;
+    execute_draw_ops(&ctx, draw_ops, data, context, cache)?;
 
     surface.finish();
 
