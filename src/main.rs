@@ -1,25 +1,25 @@
-mod fonts;
 mod lexer;
 mod package;
 mod parser;
 mod renderer;
+mod resources;
 mod validator;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
-    collections::HashMap,
     fs::read_to_string,
-    path::{Path, PathBuf}, time::{Duration, Instant},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use crate::{
-    fonts::{RegisteredFont, RenderContext, build_render_context},
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::Parser,
     renderer::render_pdf,
+    resources::build_render_context,
     validator::validate_data,
 };
 
@@ -67,7 +67,11 @@ fn main() -> Result<()> {
                 .arg(Arg::new("package").required(true))
                 .arg(Arg::new("data"))
                 .arg(Arg::new("output").short('o').long("output").required(true))
-                .arg(Arg::new("timings").long("timings").action(ArgAction::SetTrue)),
+                .arg(
+                    Arg::new("timings")
+                        .long("timings")
+                        .action(ArgAction::SetTrue),
+                ),
         )
         .subcommand(
             Command::new("pack")

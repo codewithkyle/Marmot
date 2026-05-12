@@ -2,8 +2,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 use super::*;
 use crate::{
-    fonts::RegisteredAsset,
     parser::{DrawOp, NumberValue},
+    resources::RegisteredAsset,
 };
 
 #[test]
@@ -148,6 +148,7 @@ fn renders_basic_pdf() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
 
     let data: Option<&Value> = None;
@@ -426,6 +427,7 @@ fn renders_static_text_pdf() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
 
     render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
@@ -449,6 +451,7 @@ fn resolves_declared_font_as_registered_packaged_font() {
     let context = RenderContext {
         fonts,
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
 
     let font = resolve_current_font(&context, "helvetica_bold");
@@ -467,6 +470,7 @@ fn resolves_unknown_font_as_system_font() {
     let context = RenderContext {
         fonts: HashMap::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
 
     let font = resolve_current_font(&context, "Sans");
@@ -685,6 +689,7 @@ fn returns_cairo_error_for_invalid_output_path() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
 
     let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
@@ -732,6 +737,7 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        prepared_images: HashMap::new(),
     };
     let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
     assert!(matches!(
@@ -739,9 +745,10 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
         RenderError::MissingAssetAlias { alias } if alias == "missing_logo"
     ));
 }
+
 #[test]
 fn renders_pdf_with_registered_image_asset() {
-    use crate::fonts::RegisteredImageInfo;
+    use crate::resources::RegisteredImageInfo;
     use crate::parser::{AssetType, Page, TextValue};
     use image::{ImageFormat, Rgba, RgbaImage};
     use std::fs;
@@ -766,9 +773,42 @@ fn renders_pdf_with_registered_image_asset() {
             }),
         },
     );
+    let mut prepared_images = HashMap::new();
+    let surface = {
+        let dyn_img = image::open(&image_path).unwrap();
+        let rgba = dyn_img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let mut s = cairo::ImageSurface::create(cairo::Format::ARgb32, w as i32, h as i32).unwrap();
+        let stride = s.stride() as usize;
+        let src = rgba.as_raw();
+        {
+            let mut dst = s.data().unwrap();
+            for y in 0..h as usize {
+                let src_row = &src[y * w as usize * 4..(y + 1) * w as usize * 4];
+                let dst_row = &mut dst[y * stride..y * stride + w as usize * 4];
+                for x in 0..w as usize {
+                    let si = x * 4;
+                    let di = x * 4;
+                    let r = src_row[si];
+                    let g = src_row[si + 1];
+                    let b = src_row[si + 2];
+                    let a = src_row[si + 3];
+                    let pm = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+                    dst_row[di] = pm(b, a);
+                    dst_row[di + 1] = pm(g, a);
+                    dst_row[di + 2] = pm(r, a);
+                    dst_row[di + 3] = a;
+                }
+            }
+        }
+        s.mark_dirty();
+        s
+    };
+    prepared_images.insert("logo".to_string(), surface);
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
+        prepared_images,
     };
     let page = Page {
         width: 120.0,
@@ -786,4 +826,44 @@ fn renders_pdf_with_registered_image_asset() {
     let metadata = fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
     let _ = fs::remove_file(output_path);
+}
+
+#[test]
+fn errors_when_prepared_image_missing_for_registered_asset() {
+    use crate::resources::{RegisteredAsset, RegisteredImageInfo};
+    use crate::parser::{AssetType, Page, TextValue};
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("logo".to_string()),
+        x: NumberValue::Literal(0.0),
+        y: NumberValue::Literal(0.0),
+        width: NumberValue::Literal(50.0),
+        height: NumberValue::Literal(50.0),
+    }];
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: PathBuf::from("/tmp/logo.png"),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len: 1,
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 1,
+                height: 1,
+            }),
+        },
+    );
+    let context = RenderContext {
+        fonts: HashMap::new(),
+        assets,
+        prepared_images: HashMap::new(),
+    };
+    let out = std::env::temp_dir().join("marmot_missing_prepared_image_test.pdf");
+    let err = render_pdf(&page, &draw_ops, &out, None, &context).unwrap_err();
+    assert!(matches!(err, RenderError::MissingPreparedImage { alias } if alias == "logo"));
 }

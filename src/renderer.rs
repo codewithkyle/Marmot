@@ -1,18 +1,13 @@
 #[cfg(test)]
 mod test;
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use crate::fonts::{RegisteredFont, RenderContext};
 use crate::parser::{AssetType, DrawOp, NumberValue, Page, TextValue};
+use crate::resources::{RegisteredFont, RenderContext};
 use cairo::{Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
-
-type ImageCache = HashMap<PathBuf, cairo::ImageSurface>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderOp {
@@ -111,6 +106,9 @@ pub enum RenderError {
         message: String,
     },
     MissingAssetAlias {
+        alias: String,
+    },
+    MissingPreparedImage {
         alias: String,
     },
     Cairo(cairo::Error),
@@ -569,74 +567,9 @@ fn fitted_font_size(
     }
 }
 
-fn premultiply(channel: u8, alpha: u8) -> u8 {
-    ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
-}
-
-fn load_image_surface(alias: &str, path: &Path) -> Result<cairo::ImageSurface, RenderError> {
-    let dyn_img = image::open(path).map_err(|err| RenderError::ImageDecode {
-        alias: alias.to_string(),
-        path: path.to_path_buf(),
-        message: err.to_string(),
-    })?;
-
-    let rgba = dyn_img.to_rgba8();
-    let (width, height) = rgba.dimensions();
-
-    let mut surface =
-        cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)?;
-    let stride = surface.stride() as usize;
-    let src = rgba.as_raw();
-
-    {
-        let mut dst = surface.data().map_err(|err| RenderError::ImageDecode {
-            alias: alias.to_string(),
-            path: path.to_path_buf(),
-            message: format!("cairo surface borrow failed: {err}"),
-        })?;
-
-        for y in 0..height as usize {
-            let src_row = &src[y * width as usize * 4..(y + 1) * width as usize * 4];
-            let dst_row = &mut dst[y * stride..y * stride + width as usize * 4];
-
-            for x in 0..width as usize {
-                let si = x * 4;
-                let di = x * 4;
-
-                let r = src_row[si];
-                let g = src_row[si + 1];
-                let b = src_row[si + 2];
-                let a = src_row[si + 3];
-
-                dst_row[di] = premultiply(b, a);
-                dst_row[di + 1] = premultiply(g, a);
-                dst_row[di + 2] = premultiply(r, a);
-                dst_row[di + 3] = a;
-            }
-        }
-    }
-
-    surface.mark_dirty();
-    Ok(surface)
-}
-
-fn get_or_load_image_surface<'a>(
-    cache: &'a mut ImageCache,
-    alias: &str,
-    path: &Path,
-) -> Result<&'a cairo::ImageSurface, RenderError> {
-    if !cache.contains_key(path) {
-        let surface = load_image_surface(alias, path)?;
-        cache.insert(path.to_path_buf(), surface);
-    }
-
-    Ok(cache.get(path).expect("cache must contain inserted image"))
-}
-
 fn render_image(
     ctx: &Context,
     context: &RenderContext,
-    cache: &mut ImageCache,
     asset: &str,
     x: f64,
     y: f64,
@@ -665,7 +598,12 @@ fn render_image(
         });
     }
 
-    let surface = get_or_load_image_surface(cache, asset, registered.path.as_path())?;
+    let surface =
+        context
+            .resolve_prepared_image(asset)
+            .ok_or_else(|| RenderError::MissingPreparedImage {
+                alias: asset.to_string(),
+            })?;
     let src_w = surface.width() as f64;
     let src_h = surface.height() as f64;
 
@@ -741,7 +679,6 @@ fn execute_render_ops(
     context: &RenderContext,
 ) -> Result<(), RenderError> {
     let mut state = RenderState::default();
-    let mut image_cache: ImageCache = HashMap::new();
 
     for op in render_ops {
         match op {
@@ -805,16 +742,7 @@ fn execute_render_ops(
                 width,
                 height,
             } => {
-                render_image(
-                    ctx,
-                    context,
-                    &mut image_cache,
-                    asset,
-                    *x,
-                    *y,
-                    *width,
-                    *height,
-                )?;
+                render_image(ctx, context, asset, *x, *y, *width, *height)?;
             }
             RenderOp::TextBox {
                 text,
