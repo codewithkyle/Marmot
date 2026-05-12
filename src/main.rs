@@ -12,15 +12,17 @@ use std::{
     fs::{File, read_to_string},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, mpsc},
+    thread,
     time::{Duration, Instant},
 };
 
 use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
-    parser::Parser,
+    parser::{Parser, Template},
     renderer::render_pdf,
-    resources::build_render_context,
+    resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
 
@@ -49,6 +51,7 @@ struct BatchArgs {
     records_file: PathBuf,
     output_dir: PathBuf,
     output_name: String,
+    jobs: usize,
 }
 
 fn main() -> Result<()> {
@@ -116,6 +119,15 @@ fn main() -> Result<()> {
                         .required(true)
                         .value_name("TEMPlATE")
                         .help("Filename template, supports {id} and {index}, e.g. {id}.pdf"),
+                )
+                .arg(
+                    Arg::new("jobs")
+                        .short('j')
+                        .long("jobs")
+                        .value_name("N")
+                        .default_value("0")
+                        .value_parser(clap::value_parser!(usize))
+                        .help("Worker count. 0 = auto"),
                 ),
         )
         .get_matches();
@@ -174,11 +186,24 @@ fn pack(args: PackArgs) -> Result<()> {
     Ok(())
 }
 
+struct BatchJob {
+    line_no: usize,
+    line: String,
+}
+
+enum BatchResult {
+    Success { line_no: usize },
+    Failed { line_no: usize, message: String },
+    WorkerFatal { message: String },
+}
+
 fn batch(args: BatchArgs) -> Result<()> {
     let package = MarmotPackage::open(&args.package_file)?;
     let template_source = package.read_template_source()?;
-    let template = parse_template_source(&template_source)?;
-    let render_context = build_render_context(&template, &package)?;
+    let template = Arc::new(parse_template_source(&template_source)?);
+
+    let jobs = resolve_jobs(args.jobs);
+    println!("batch: jobs={}", jobs);
 
     let file = File::open(&args.records_file).with_context(|| {
         format!(
@@ -188,8 +213,75 @@ fn batch(args: BatchArgs) -> Result<()> {
     })?;
     let reader = BufReader::new(file);
 
-    let mut success = 0usize;
-    let mut failed = 0usize;
+    let output_dir = Arc::new(args.output_dir.clone());
+    let output_name = Arc::new(args.output_name.clone());
+
+    let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
+    let (result_tx, result_rx) = mpsc::channel::<BatchResult>();
+
+    let shared_rx = Arc::new(Mutex::new(job_rx));
+    let mut workers = Vec::with_capacity(jobs);
+
+    for _ in 0..jobs {
+        let rx = Arc::clone(&shared_rx);
+        let tx = result_tx.clone();
+        let template = Arc::clone(&template);
+        let output_dir = Arc::clone(&output_dir);
+        let output_name = Arc::clone(&output_name);
+        let package_file = args.package_file.clone();
+
+        let handle = thread::spawn(move || {
+            let package = match MarmotPackage::open(&package_file) {
+                Ok(p) => p,
+                Err(err) => {
+                    let _ = tx.send(BatchResult::WorkerFatal {
+                        message: format!("worker render context build failed: {err:#}"),
+                    });
+                    return;
+                }
+            };
+            let render_context = match build_render_context(&template, &package) {
+                Ok(c) => c,
+                Err(err) => {
+                    let _ = tx.send(BatchResult::WorkerFatal {
+                        message: format!("worker render context build failed: {err:#}"),
+                    });
+                    return;
+                }
+            };
+
+            loop {
+                let job = {
+                    let guard = rx.lock().expect("job receiver lock poisoned");
+                    guard.recv()
+                };
+
+                let job = match job {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+
+                let result = process_batch_line(
+                    job.line_no,
+                    &job.line,
+                    &template,
+                    &render_context,
+                    &output_dir,
+                    &output_name,
+                );
+
+                if tx.send(result).is_err() {
+                    break;
+                }
+            }
+        });
+
+        workers.push(handle);
+    }
+
+    drop(result_tx);
+
+    let mut dispatched = 0usize;
     let mut skipped = 0usize;
 
     for (line_index, line_result) in reader.lines().enumerate() {
@@ -198,7 +290,6 @@ fn batch(args: BatchArgs) -> Result<()> {
             Ok(v) => v,
             Err(err) => {
                 eprintln!("line {} read error: {}", line_no, err);
-                failed += 1;
                 continue;
             }
         };
@@ -208,72 +299,48 @@ fn batch(args: BatchArgs) -> Result<()> {
             continue;
         }
 
-        let record: Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("line {} json parse error: {}", line_no, err);
-                failed += 1;
-                continue;
-            }
-        };
-
-        if !record.is_object() {
-            eprintln!("line {} json must be object", line_no);
-            failed += 1;
-            continue;
+        let job = BatchJob { line_no, line };
+        if job_tx.send(job).is_err() {
+            bail!("worker queue closed unexpectedly");
         }
+        dispatched += 1;
+    }
 
-        if let Err(errors) = validate_data(&template, &record) {
-            eprintln!("line {} validation failed:", line_no);
-            for error in errors {
-                eprintln!("    {:?}", error);
-            }
-            failed += 1;
-            continue;
-        }
+    drop(job_tx);
 
-        let file_name = match format_output_name(&args.output_name, &record, line_no) {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("line {} output-name error: {}", line_no, err);
-                failed += 1;
-                continue;
-            }
-        };
+    let mut success = 0usize;
+    let mut failed = 0usize;
+    let mut completed = 0usize;
 
-        let output_path = args.output_dir.join(file_name);
-
-        if let Some(parent) = output_path.parent() {
-            if !parent.exists() || !parent.is_dir() {
-                eprintln!(
-                    "line {} output path parent missing/not dir: {}",
-                    line_no,
-                    parent.display()
-                );
-                failed += 1;
-                continue;
-            }
-        }
-
-        match render_pdf(
-            &template.page,
-            &template.draw,
-            &output_path,
-            Some(&record),
-            &render_context,
-        ) {
-            Ok(()) => {
+    while completed < dispatched {
+        match result_rx.recv() {
+            Ok(BatchResult::Success { .. }) => {
                 success += 1;
+                completed += 1;
             }
-            Err(err) => {
-                eprintln!(
-                    "line {} render failed for {}: {:?}",
-                    line_no,
-                    output_path.display(),
-                    err
-                );
+            Ok(BatchResult::Failed { line_no, message }) => {
+                eprintln!("line {} {}", line_no, message);
                 failed += 1;
+                completed += 1;
             }
+            Ok(BatchResult::WorkerFatal { message }) => {
+                eprintln!("worker fatal: {}", message);
+                failed += 1;
+                completed += 1;
+            }
+            Err(_) => {
+                bail!(
+                    "result channel closed early: completed {} of {}",
+                    completed,
+                    dispatched
+                );
+            }
+        }
+    }
+
+    for handle in workers {
+        if handle.join().is_err() {
+            bail!("worker thread panicked");
         }
     }
 
@@ -282,7 +349,7 @@ fn batch(args: BatchArgs) -> Result<()> {
         success, failed, skipped
     );
 
-    if success == 0 && failed > 0 {
+    if success == 0 && (failed > 0 || dispatched > 0) {
         bail!("batch produced no outputs");
     }
 
@@ -406,6 +473,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .get_one::<String>("output-name")
         .expect("output-name is required")
         .into();
+    let jobs = *matches.get_one::<usize>("jobs").expect("jobs has default");
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -415,6 +483,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         records_file,
         output_dir,
         output_name,
+        jobs,
     })
 }
 
@@ -565,4 +634,73 @@ fn format_output_name(template: &str, record: &Value, index: usize) -> Result<St
     }
 
     Ok(out)
+}
+
+fn resolve_jobs(requested: usize) -> usize {
+    if requested == 0 {
+        thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    } else {
+        requested.max(1)
+    }
+}
+
+fn process_batch_line(
+    line_no: usize,
+    line: &str,
+    template: &Template,
+    render_context: &RenderContext,
+    output_dir: &Path,
+    output_name_template: &str,
+) -> BatchResult {
+    let record: Value = match serde_json::from_str(&line) {
+        Ok(v) => v,
+        Err(err) => {
+            return BatchResult::Failed {
+                line_no,
+                message: format!("json parse error: {err}"),
+            };
+        }
+    };
+
+    if !record.is_object() {
+        return BatchResult::Failed {
+            line_no,
+            message: "json must be object".to_string(),
+        };
+    }
+
+    if let Err(errors) = validate_data(&template, &record) {
+        return BatchResult::Failed {
+            line_no,
+            message: format!("validation failed: {:?}", errors),
+        };
+    }
+
+    let file_name = match format_output_name(output_name_template, &record, line_no) {
+        Ok(v) => v,
+        Err(err) => {
+            return BatchResult::Failed {
+                line_no,
+                message: format!("output-name error: {err}",),
+            };
+        }
+    };
+
+    let output_path = output_dir.join(file_name);
+
+    match render_pdf(
+        &template.page,
+        &template.draw,
+        &output_path,
+        Some(&record),
+        &render_context,
+    ) {
+        Ok(()) => BatchResult::Success { line_no },
+        Err(err) => BatchResult::Failed {
+            line_no,
+            message: format!("render failed for {}: {:?}", output_path.display(), err),
+        },
+    }
 }
