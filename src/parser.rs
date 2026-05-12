@@ -60,6 +60,7 @@ enum CurrentPathKind {
 pub enum TextValue {
     Literal(String),
     Slot(String),
+    Concat(Vec<TextValue>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +158,15 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    InvalidConcatOperation {
+        line: usize,
+        column: usize,
+    },
+    MustBeLiteralNumber {
+        slot: String,
+        line: usize,
+        column: usize,
+    },
     UnpaintedPath {
         line: usize,
         column: usize,
@@ -553,11 +563,6 @@ impl Parser {
                 TokenKind::String(value) => {
                     stack.push(StackValue::Text(TextValue::Literal(value.clone())));
                 }
-                TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
-                    let fit = ImageFit::from_word(word).unwrap();
-                    self.expect_word("imagefit")?;
-                    ops.push(DrawOp::SetImageFit { fit });
-                }
                 TokenKind::Slot(slot_name) => {
                     let Some(slot_ty) = slots.get(slot_name) else {
                         return Err(ParseError::UnknownSlot {
@@ -575,6 +580,53 @@ impl Parser {
                             stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
                         }
                     }
+                }
+                TokenKind::Word(word) if word == "concat" => {
+                    Self::require_stack(&stack, "concat", 1, token)?;
+                    let count_value = Self::pop_number(&mut stack, "concat", token)?;
+                    let count = match count_value {
+                        NumberValue::Literal(n)
+                            if n.is_finite() && n >= 0.0 && n.fract() == 0.0 =>
+                        {
+                            n as usize
+                        }
+                        NumberValue::Literal(n) => {
+                            return Err(ParseError::InvalidNumberOperand {
+                                operator: "concat".to_string(),
+                                operand: ">= 0.0".to_string(),
+                                value: n,
+                                expected: "non-negative integer".to_string(),
+                                line: token.line,
+                                column: token.column,
+                            });
+                        }
+                        NumberValue::Slot(name) => {
+                            return Err(ParseError::MustBeLiteralNumber {
+                                slot: name.to_string(),
+                                line: token.line,
+                                column: token.column,
+                            });
+                        }
+                    };
+                    Self::require_stack(&stack, "concat", count, token)?;
+                    let mut values: Vec<TextValue> = Vec::new();
+                    for _ in 0..count {
+                        let value = Self::pop_string(&mut stack, "concat", token)?;
+                        match value {
+                            TextValue::Concat(_) => {
+                                return Err(ParseError::InvalidConcatOperation { line: token.line, column: token.column });
+                            },
+                            _ => {}
+                        };
+                        values.push(value);
+                    }
+                    values.reverse();
+                    stack.push(StackValue::Text(TextValue::Concat(values)));
+                }
+                TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
+                    let fit = ImageFit::from_word(word).unwrap();
+                    self.expect_word("imagefit")?;
+                    ops.push(DrawOp::SetImageFit { fit });
                 }
                 TokenKind::Word(word) if word == "image" => {
                     Self::require_stack(&stack, "image", 5, token)?;

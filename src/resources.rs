@@ -315,18 +315,6 @@ mod test {
         std::mem::forget(dir);
         path
     }
-    fn tiny_valid_png() -> Vec<u8> {
-        vec![
-            137, 80, 78, 71, 13, 10, 26, 10, // signature
-            0, 0, 0, 13, 73, 72, 68, 82, // IHDR chunk
-            0, 0, 0, 1, // width = 1
-            0, 0, 0, 1, // height = 1
-            8, 6, 0, 0, 0, 31, 21, 196, 137, // IHDR payload + CRC
-            0, 0, 0, 13, 73, 68, 65, 84, // IDAT chunk
-            120, 156, 99, 248, 255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73,
-            69, 78, 68, 174, 66, 96, 130, // IEND
-        ]
-    }
 
     #[test]
     fn register_asset_accepts_valid_png_image() {

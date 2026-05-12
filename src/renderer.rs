@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod test;
 
-use std::{collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::parser::{AssetType, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
@@ -212,6 +215,13 @@ fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderEr
                 .map(|s| s.to_string())
                 .ok_or_else(|| RenderError::InvalidTextSlot { slot: name.clone() })
         }
+        TextValue::Concat(parts) => {
+            let mut out = String::new();
+            for part in parts {
+                out.push_str(&eval_text(part, data)?);
+            }
+            Ok(out)
+        }
     }
 }
 
@@ -381,7 +391,8 @@ fn load_image_surface(alias: &str, path: &Path) -> Result<cairo::ImageSurface, R
     let rgba = dyn_img.to_rgba8();
     let (width, height) = rgba.dimensions();
 
-    let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)?;
+    let mut surface =
+        cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)?;
     let stride = surface.stride() as usize;
     let src = rgba.as_raw();
 

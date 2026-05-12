@@ -678,3 +678,47 @@ fn executes_set_imagefit() {
 
     execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
+
+#[test]
+fn executes_textbox_with_concat_text() {
+    let data = serde_json::json!({
+        "B": "2",
+        "G": "1"
+    });
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Concat(vec![
+            TextValue::Literal("BUY ".to_string()),
+            TextValue::Slot("B".to_string()),
+            TextValue::Literal(" GET ".to_string()),
+            TextValue::Slot("G".to_string()),
+        ]),
+        x: NumberValue::Literal(20.0),
+        y: NumberValue::Literal(40.0),
+        width: NumberValue::Literal(160.0),
+        height: NumberValue::Literal(40.0),
+    }];
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
+}
+#[test]
+fn errors_when_concat_contains_missing_slot() {
+    let data = serde_json::json!({
+        "B": "2"
+    });
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Concat(vec![
+            TextValue::Literal("BUY ".to_string()),
+            TextValue::Slot("B".to_string()),
+            TextValue::Literal(" GET ".to_string()),
+            TextValue::Slot("G".to_string()),
+        ]),
+        x: NumberValue::Literal(20.0),
+        y: NumberValue::Literal(40.0),
+        width: NumberValue::Literal(160.0),
+        height: NumberValue::Literal(40.0),
+    }];
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::MissingSlot { slot } if slot == "G"
+    ));
+}

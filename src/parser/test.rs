@@ -1202,3 +1202,56 @@ end
         ]
     );
 }
+
+#[test]
+fn parses_concat_for_textbox() {
+    let source = r#"%!PSL 0.1
+page 612 792
+slots begin
+  B string required
+  G string required
+end
+draw begin
+  (BUY ) $(B) ( GET ) $(G) 4 concat 0 0 100 25 textbox
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::TextBox {
+            text: TextValue::Concat(vec![
+                TextValue::Literal("BUY ".to_string()),
+                TextValue::Slot("B".to_string()),
+                TextValue::Literal(" GET ".to_string()),
+                TextValue::Slot("G".to_string()),
+            ]),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(25.0),
+        }]
+    );
+}
+#[test]
+fn errors_when_concat_count_is_slot() {
+    let source = r#"%!PSL 0.1
+page 612 792
+slots begin
+  n int required
+end
+draw begin
+  (A) $(n) concat 0 0 100 25 textbox
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+    assert!(matches!(
+        err,
+        ParseError::MustBeLiteralNumber { slot, .. } if slot == "n"
+    ));
+}
