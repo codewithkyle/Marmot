@@ -1,0 +1,39 @@
+%!PSL 0.1
+page 300 180
+slots begin
+  id string required
+  product_name string required
+  price string required
+  barcode string required
+end
+fonts begin
+  barcode_font "fonts/LibreBarcode39.ttf"
+  kablammo "fonts/Kablammo.ttf"
+end
+draw begin
+  1 1 1 rgb
+  0 0 300 180 rect fill
+  0.92 0.92 0.92 rgb
+  10 10 280 30 rect fill
+  0 0 0 rgb
+  1 strokewidth
+  10 10 280 160 rect stroke
+  0 0 0 rgb
+  14 fontsize
+  left align
+  top valign
+  contain imagefit
+  $(id) 20 16 260 20 textbox
+  (kablammo) font
+  $(product_name) 20 50 260 30 textbox
+  24 fontsize
+  left align
+  middle valign
+  $(price) 20 90 260 35 textbox
+  11 fontsize
+  left align
+  top valign
+  none wrap
+  (barcode_font) font
+  $(barcode) 20 140 260 20 textbox
+end

@@ -476,7 +476,8 @@ fn configure_text_layout(
     layout.set_text(text);
 
     let font_name = current_font_description_name(&state.font);
-    let mut font = FontDescription::from_string(font_name);
+    let mut font = FontDescription::new();
+    font.set_family(font_name);
     font.set_size(to_pango_units(font_size));
     layout.set_font_description(Some(&font));
 

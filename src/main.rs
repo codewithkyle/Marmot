@@ -9,7 +9,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
-    fs::read_to_string,
+    fs::{File, read_to_string},
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -44,8 +45,10 @@ struct PackArgs {
 }
 
 struct BatchArgs {
-    template_file: PathBuf,
-    data_file: PathBuf,
+    package_file: PathBuf,
+    records_file: PathBuf,
+    output_dir: PathBuf,
+    output_name: String,
 }
 
 fn main() -> Result<()> {
@@ -96,6 +99,25 @@ fn main() -> Result<()> {
                 )
                 .arg(Arg::new("output").short('o').long("output-dir")),
         )
+        .subcommand(
+            Command::new("batch")
+                .about("Render many PDFs from a .marmot package and JSONL records")
+                .arg(Arg::new("package").required(true))
+                .arg(Arg::new("records").required(true))
+                .arg(
+                    Arg::new("output-dir")
+                        .long("output-dir")
+                        .required(true)
+                        .value_name("DIR"),
+                )
+                .arg(
+                    Arg::new("output-name")
+                        .long("output-name")
+                        .required(true)
+                        .value_name("TEMPlATE")
+                        .help("Filename template, supports {id} and {index}, e.g. {id}.pdf"),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -110,6 +132,10 @@ fn main() -> Result<()> {
         Some(("pack", sub_matches)) => {
             let args = parse_pack_args(sub_matches)?;
             pack(args)?;
+        }
+        Some(("batch", sub_matches)) => {
+            let args = parse_batch_args(sub_matches)?;
+            batch(args)?;
         }
         _ => unreachable!("Exhausted list of subcommands."),
     };
@@ -144,6 +170,121 @@ fn pack(args: PackArgs) -> Result<()> {
     create_package(options)?;
 
     println!("wrote {}", output_file.display());
+
+    Ok(())
+}
+
+fn batch(args: BatchArgs) -> Result<()> {
+    let package = MarmotPackage::open(&args.package_file)?;
+    let template_source = package.read_template_source()?;
+    let template = parse_template_source(&template_source)?;
+    let render_context = build_render_context(&template, &package)?;
+
+    let file = File::open(&args.records_file).with_context(|| {
+        format!(
+            "failed to open records file: {}",
+            args.records_file.display()
+        )
+    })?;
+    let reader = BufReader::new(file);
+
+    let mut success = 0usize;
+    let mut failed = 0usize;
+    let mut skipped = 0usize;
+
+    for (line_index, line_result) in reader.lines().enumerate() {
+        let line_no = line_index + 1;
+        let line = match line_result {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("line {} read error: {}", line_no, err);
+                failed += 1;
+                continue;
+            }
+        };
+
+        if line.trim().is_empty() {
+            skipped += 1;
+            continue;
+        }
+
+        let record: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("line {} json parse error: {}", line_no, err);
+                failed += 1;
+                continue;
+            }
+        };
+
+        if !record.is_object() {
+            eprintln!("line {} json must be object", line_no);
+            failed += 1;
+            continue;
+        }
+
+        if let Err(errors) = validate_data(&template, &record) {
+            eprintln!("line {} validation failed:", line_no);
+            for error in errors {
+                eprintln!("    {:?}", error);
+            }
+            failed += 1;
+            continue;
+        }
+
+        let file_name = match format_output_name(&args.output_name, &record, line_no) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("line {} output-name error: {}", line_no, err);
+                failed += 1;
+                continue;
+            }
+        };
+
+        let output_path = args.output_dir.join(file_name);
+
+        if let Some(parent) = output_path.parent() {
+            if !parent.exists() || !parent.is_dir() {
+                eprintln!(
+                    "line {} output path parent missing/not dir: {}",
+                    line_no,
+                    parent.display()
+                );
+                failed += 1;
+                continue;
+            }
+        }
+
+        match render_pdf(
+            &template.page,
+            &template.draw,
+            &output_path,
+            Some(&record),
+            &render_context,
+        ) {
+            Ok(()) => {
+                success += 1;
+            }
+            Err(err) => {
+                eprintln!(
+                    "line {} render failed for {}: {:?}",
+                    line_no,
+                    output_path.display(),
+                    err
+                );
+                failed += 1;
+            }
+        }
+    }
+
+    println!(
+        "batch complete: success={}, failed={}, skipped={}",
+        success, failed, skipped
+    );
+
+    if success == 0 && failed > 0 {
+        bail!("batch produced no outputs");
+    }
 
     Ok(())
 }
@@ -248,6 +389,35 @@ fn parse_check_args(matches: &ArgMatches) -> Result<CheckArgs> {
     Ok(args)
 }
 
+fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
+    let package_file: PathBuf = matches
+        .get_one::<String>("package")
+        .expect("package is required")
+        .into();
+    let records_file: PathBuf = matches
+        .get_one::<String>("records")
+        .expect("records is required")
+        .into();
+    let output_dir: PathBuf = matches
+        .get_one::<String>("output-dir")
+        .expect("output-dir is required")
+        .into();
+    let output_name = matches
+        .get_one::<String>("output-name")
+        .expect("output-name is required")
+        .into();
+
+    ensure_file_exists(&records_file)?;
+    ensure_dir_exists(&output_dir)?;
+
+    Ok(BatchArgs {
+        package_file,
+        records_file,
+        output_dir,
+        output_name,
+    })
+}
+
 fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
     let template_file = matches
         .get_one::<String>("template")
@@ -338,4 +508,61 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn value_to_filename_fragment(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        let bad = matches!(
+            ch,
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'
+        );
+        if bad || ch.is_control() {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+
+    let out = out.trim();
+    if out.is_empty() {
+        "_".to_string()
+    } else {
+        out.to_string()
+    }
+}
+
+fn format_output_name(template: &str, record: &Value, index: usize) -> Result<String> {
+    let mut out = template.replace("{index}", &index.to_string());
+
+    if out.contains("{id}") {
+        let id_value = record
+            .get("id")
+            .ok_or_else(|| anyhow!("record missing id field required by output template"))?;
+        let id_text = value_to_filename_fragment(id_value)
+            .ok_or_else(|| anyhow!("record id must be string/number/bool for output template"))?;
+
+        out = out.replace("{id}", &id_text);
+    }
+
+    let out = sanitize_filename(&out);
+
+    if out.contains("..") {
+        bail!("output file contains unsafe '..': {}", out);
+    }
+
+    if Path::new(&out).is_absolute() {
+        bail!("output filename must be relative: {}", out);
+    }
+
+    Ok(out)
 }
