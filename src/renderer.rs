@@ -11,6 +11,7 @@ use crate::resources::{RegisteredFont, RenderContext};
 use cairo::{Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
@@ -202,6 +203,34 @@ impl Default for RenderState {
     }
 }
 
+fn to_title_case(input: &str) -> String {
+    input.split_word_bounds().map(|chunk| {
+        if chunk.chars().any(|c| c.is_alphabetic()) {
+            let mut graphemes = chunk.graphemes(true);
+            match graphemes.next() {
+                Some(first) => {
+                    let rest: String = graphemes.collect();
+                    format!("{}{}", first.to_uppercase(), rest.to_lowercase())
+                }
+                None => String::new()
+            }
+        } else {
+            chunk.to_string()
+        }
+    }).collect()
+}
+
+fn to_capitalize(input: &str) -> String {
+    let mut graphemes = input.graphemes(true);
+    match graphemes.next() {
+        Some(first) => {
+            let rest: String = graphemes.collect();
+            format!("{}{}", first.to_uppercase(), rest.to_lowercase())
+        }
+        None => String::new()
+    }
+}
+
 fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderError> {
     match value {
         TextValue::Literal(text) => Ok(text.clone()),
@@ -221,6 +250,22 @@ fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderEr
                 out.push_str(&eval_text(part, data)?);
             }
             Ok(out)
+        }
+        TextValue::UpperCase(v) => {
+            let value = eval_text(v.as_ref(), data)?;
+            Ok(value.to_uppercase())
+        }
+        TextValue::LowerCase(v) => {
+            let value = eval_text(v.as_ref(), data)?;
+            Ok(value.to_lowercase())
+        }
+        TextValue::TitleCase(v) => {
+            let value = eval_text(v.as_ref(), data)?;
+            Ok(to_title_case(&value))
+        }
+        TextValue::Capitalize(v) => {
+            let value = eval_text(v.as_ref(), data)?;
+            Ok(to_capitalize(&value))
         }
     }
 }

@@ -722,3 +722,31 @@ fn errors_when_concat_contains_missing_slot() {
         RenderError::MissingSlot { slot } if slot == "G"
     ));
 }
+
+#[test]
+fn eval_text_uppercase() {
+    let value = TextValue::UpperCase(Box::new(TextValue::Literal("hELLo".to_string())));
+    let text = eval_text(&value, None).unwrap();
+    assert_eq!(text, "HELLO");
+}
+
+#[test]
+fn eval_text_lowercase() {
+    let value = TextValue::LowerCase(Box::new(TextValue::Literal("hELLo".to_string())));
+    let text = eval_text(&value, None).unwrap();
+    assert_eq!(text, "hello");
+}
+
+#[test]
+fn eval_text_titlecase() {
+    let value = TextValue::TitleCase(Box::new(TextValue::Literal("hELLo wORLd".to_string())));
+    let text = eval_text(&value, None).unwrap();
+    assert_eq!(text, "Hello World");
+}
+
+#[test]
+fn eval_text_capitalize() {
+    let value = TextValue::Capitalize(Box::new(TextValue::Literal("hELLo wORLd".to_string())));
+    let text = eval_text(&value, None).unwrap();
+    assert_eq!(text, "Hello world");
+}

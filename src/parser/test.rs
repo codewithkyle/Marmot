@@ -1255,3 +1255,115 @@ end
         ParseError::MustBeLiteralNumber { slot, .. } if slot == "n"
     ));
 }
+
+#[test]
+fn parses_uppercase_textbox() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (hELLo) uppercase 0 0 100 25 textbox
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::TextBox {
+            text: TextValue::UpperCase(Box::new(TextValue::Literal("hELLo".to_string()))),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(25.0),
+        }]
+    );
+}
+
+#[test]
+fn parses_lowercase_textbox() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (hELLo) lowercase 0 0 100 25 textbox
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::TextBox {
+            text: TextValue::LowerCase(Box::new(TextValue::Literal("hELLo".to_string()))),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(25.0),
+        }]
+    );
+}
+
+#[test]
+fn parses_titlecase_textbox() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (hELLo wORLd) titlecase 0 0 100 25 textbox
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::TextBox {
+            text: TextValue::TitleCase(Box::new(TextValue::Literal(
+                "hELLo wORLd".to_string(),
+            ))),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(25.0),
+        }]
+    );
+}
+
+#[test]
+fn parses_capitalize_textbox() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  (hELLo wORLd) capitalize 0 0 100 25 textbox
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::TextBox {
+            text: TextValue::Capitalize(Box::new(TextValue::Literal(
+                "hELLo wORLd".to_string(),
+            ))),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(25.0),
+        }]
+    );
+}

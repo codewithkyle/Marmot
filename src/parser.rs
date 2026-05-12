@@ -61,6 +61,10 @@ pub enum TextValue {
     Literal(String),
     Slot(String),
     Concat(Vec<TextValue>),
+    UpperCase(Box<TextValue>),
+    LowerCase(Box<TextValue>),
+    TitleCase(Box<TextValue>),
+    Capitalize(Box<TextValue>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -614,14 +618,37 @@ impl Parser {
                         let value = Self::pop_string(&mut stack, "concat", token)?;
                         match value {
                             TextValue::Concat(_) => {
-                                return Err(ParseError::InvalidConcatOperation { line: token.line, column: token.column });
-                            },
+                                return Err(ParseError::InvalidConcatOperation {
+                                    line: token.line,
+                                    column: token.column,
+                                });
+                            }
                             _ => {}
                         };
                         values.push(value);
                     }
                     values.reverse();
                     stack.push(StackValue::Text(TextValue::Concat(values)));
+                }
+                TokenKind::Word(word) if word == "uppercase" => {
+                    Self::require_stack(&stack, "uppercase", 1, token)?;
+                    let value = Self::pop_string(&mut stack, "uppercase", token)?;
+                    stack.push(StackValue::Text(TextValue::UpperCase(Box::new(value))));
+                }
+                TokenKind::Word(word) if word == "lowercase" => {
+                    Self::require_stack(&stack, "lowercase", 1, token)?;
+                    let value = Self::pop_string(&mut stack, "lowercase", token)?;
+                    stack.push(StackValue::Text(TextValue::LowerCase(Box::new(value))));
+                }
+                TokenKind::Word(word) if word == "capitalize" => {
+                    Self::require_stack(&stack, "capitalize", 1, token)?;
+                    let value = Self::pop_string(&mut stack, "capitalize", token)?;
+                    stack.push(StackValue::Text(TextValue::Capitalize(Box::new(value))));
+                }
+                TokenKind::Word(word) if word == "titlecase" => {
+                    Self::require_stack(&stack, "title", 1, token)?;
+                    let value = Self::pop_string(&mut stack, "title", token)?;
+                    stack.push(StackValue::Text(TextValue::TitleCase(Box::new(value))));
                 }
                 TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
                     let fit = ImageFit::from_word(word).unwrap();
