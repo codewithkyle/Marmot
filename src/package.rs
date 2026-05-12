@@ -7,12 +7,9 @@ use std::{
 };
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-use tempfile::TempDir;
-
 use crate::ensure_file_exists;
 
 pub struct MarmotPackage {
-    temp_dir: TempDir,
     root: PathBuf,
 }
 
@@ -25,7 +22,7 @@ impl MarmotPackage {
 
         let root = temp_dir.path().to_path_buf();
 
-        let package = Self { temp_dir, root };
+        let package = Self { root };
         package.ensure_template_exists()?;
 
         Ok(package)

@@ -65,7 +65,7 @@ fn image_format_label(format: ImageFormat) -> String {
     format!("{format:?}").to_lowercase()
 }
 
-fn register_font(alias: &str, path: PathBuf) -> Result<RegisteredFont> {
+fn register_font(path: PathBuf) -> Result<RegisteredFont> {
     fontconfig::add_app_font_file(&path).map_err(|err| anyhow!("{err}"))?;
 
     let family_name = read_font_family_name(&path)?;
@@ -188,7 +188,7 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
             )
         })?;
 
-        let registered = register_font(&font_decl.name, path)?;
+        let registered = register_font(path)?;
 
         fonts.insert(font_decl.name.clone(), registered);
     }
@@ -255,9 +255,8 @@ fn read_font_family_name(path: &Path) -> Result<String> {
 mod fontconfig {
     use std::{
         ffi::CString,
-        os::raw::{c_char, c_int, c_uchar},
+        os::raw::{c_int, c_uchar},
         path::Path,
-        ptr,
     };
 
     type FcBool = c_int;

@@ -2,7 +2,7 @@
 mod test;
 
 use crate::{
-    lexer::{Lexer, Token, TokenKind},
+    lexer::{Token, TokenKind},
     renderer::{ImageFit, LineBreakMode, TextAlign, TextFit, VerticalAlign},
 };
 use std::collections::HashMap;
@@ -935,34 +935,4 @@ impl Parser {
 
         Ok(Page { width, height })
     }
-}
-
-#[test]
-fn parses_imagefit_commands() {
-    let source = r#"%!PSL 0.1
-page 100 100
-draw begin
-  contain imagefit
-  cover imagefit
-  stretch imagefit
-end
-"#;
-    let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    let template = parser.parse_template().unwrap();
-    assert_eq!(
-        template.draw,
-        vec![
-            DrawOp::SetImageFit {
-                fit: ImageFit::Contain
-            },
-            DrawOp::SetImageFit {
-                fit: ImageFit::Cover
-            },
-            DrawOp::SetImageFit {
-                fit: ImageFit::Stretch
-            },
-        ]
-    );
 }

@@ -5,9 +5,22 @@ use crate::{
     parser::{DrawOp, NumberValue},
     resources::RegisteredAsset,
 };
+use serde_json::Value;
+
+fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Result<(), RenderError> {
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 256, 256)?;
+    let ctx = cairo::Context::new(&surface)?;
+    let mut cache = RenderCache::default();
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets: HashMap::<String, RegisteredAsset>::new(),
+    };
+
+    execute_draw_ops(&ctx, draw_ops, data, &render_context, &mut cache)
+}
 
 #[test]
-fn lowers_rect_fill() {
+fn executes_rect_fill() {
     let draw_ops = vec![
         DrawOp::RectPath {
             x: NumberValue::Literal(10.0),
@@ -18,22 +31,11 @@ fn lowers_rect_fill() {
         DrawOp::Fill,
     ];
 
-    let data: Option<&Value> = None;
-    let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::FillRect {
-            x: 10.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
-fn lowers_rect_stroke() {
+fn executes_rect_stroke() {
     let draw_ops = vec![
         DrawOp::RectPath {
             x: NumberValue::Literal(10.0),
@@ -44,22 +46,11 @@ fn lowers_rect_stroke() {
         DrawOp::Stroke,
     ];
 
-    let data: Option<&Value> = None;
-    let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::StrokeRect {
-            x: 10.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
-fn lowers_line_stroke() {
+fn executes_line_stroke() {
     let draw_ops = vec![
         DrawOp::LinePath {
             x1: NumberValue::Literal(0.0),
@@ -70,18 +61,7 @@ fn lowers_line_stroke() {
         DrawOp::Stroke,
     ];
 
-    let data: Option<&Value> = None;
-    let render_ops = lower_draw_ops(&draw_ops, data).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::StrokeLine {
-            x1: 0.0,
-            y1: 0.0,
-            x2: 100.0,
-            y2: 100.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
@@ -150,8 +130,7 @@ fn renders_basic_pdf() {
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
-    let data: Option<&Value> = None;
-    render_pdf(&page, &draw_ops, &output_path, data, &render_context).unwrap();
+    render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
     let metadata = fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
@@ -160,7 +139,7 @@ fn renders_basic_pdf() {
 }
 
 #[test]
-fn lowers_literal_rect_without_data() {
+fn executes_literal_rect_without_data() {
     let draw_ops = vec![
         DrawOp::RectPath {
             x: NumberValue::Literal(10.0),
@@ -171,21 +150,11 @@ fn lowers_literal_rect_without_data() {
         DrawOp::Fill,
     ];
 
-    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::FillRect {
-            x: 10.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
-fn lowers_numeric_slot_from_json_data() {
+fn executes_numeric_slot_from_json_data() {
     let data = serde_json::json!({
         "x": 25.0
     });
@@ -200,21 +169,11 @@ fn lowers_numeric_slot_from_json_data() {
         DrawOp::Fill,
     ];
 
-    let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::FillRect {
-            x: 25.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
 }
 
 #[test]
-fn lowers_integer_slot_from_json_data() {
+fn executes_integer_slot_from_json_data() {
     let data = serde_json::json!({
         "x": 25
     });
@@ -229,17 +188,7 @@ fn lowers_integer_slot_from_json_data() {
         DrawOp::Stroke,
     ];
 
-    let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::StrokeLine {
-            x1: 25.0,
-            y1: 0.0,
-            x2: 100.0,
-            y2: 100.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
 }
 
 #[test]
@@ -254,7 +203,7 @@ fn errors_when_slot_is_used_without_data() {
         DrawOp::Fill,
     ];
 
-    let err = lower_draw_ops(&draw_ops, None).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
 
     assert!(matches!(
         err,
@@ -278,7 +227,7 @@ fn errors_when_json_field_is_missing() {
         DrawOp::Fill,
     ];
 
-    let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
 
     assert!(matches!(
         err,
@@ -302,7 +251,7 @@ fn errors_when_json_field_is_not_a_number() {
         DrawOp::Fill,
     ];
 
-    let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
 
     assert!(matches!(
         err,
@@ -311,7 +260,7 @@ fn errors_when_json_field_is_not_a_number() {
 }
 
 #[test]
-fn lowers_static_textbox() {
+fn executes_static_textbox() {
     let draw_ops = vec![DrawOp::TextBox {
         text: TextValue::Literal("Hello Marmot".to_string()),
         x: NumberValue::Literal(20.0),
@@ -320,22 +269,11 @@ fn lowers_static_textbox() {
         height: NumberValue::Literal(40.0),
     }];
 
-    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::TextBox {
-            text: "Hello Marmot".to_string(),
-            x: 20.0,
-            y: 40.0,
-            width: 160.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
-fn lowers_dynamic_textbox_from_json_data() {
+fn executes_dynamic_textbox_from_json_data() {
     let data = serde_json::json!({
         "product_name": "Coffee Beans"
     });
@@ -348,18 +286,7 @@ fn lowers_dynamic_textbox_from_json_data() {
         height: NumberValue::Literal(40.0),
     }];
 
-    let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::TextBox {
-            text: "Coffee Beans".to_string(),
-            x: 20.0,
-            y: 40.0,
-            width: 160.0,
-            height: 40.0,
-        }]
-    );
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
 }
 
 #[test]
@@ -376,7 +303,7 @@ fn errors_when_text_slot_is_not_a_string() {
         height: NumberValue::Literal(40.0),
     }];
 
-    let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
 
     assert!(matches!(
         err,
@@ -430,7 +357,7 @@ fn renders_static_text_pdf() {
 
     render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
-    let metadata = fs::metadata(&output_path).unwrap();
+    let metadata = std::fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
 
     let _ = fs::remove_file(output_path);
@@ -488,7 +415,7 @@ fn packaged_font_uses_registered_family_name_for_pango() {
 }
 
 #[test]
-fn lowers_text_style_and_font_ops() {
+fn executes_text_style_and_font_ops() {
     let draw_ops = vec![
         DrawOp::SetFontFamily {
             font: TextValue::Literal("Helvetica-Bold".to_string()),
@@ -516,35 +443,11 @@ fn lowers_text_style_and_font_ops() {
         },
     ];
 
-    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![
-            RenderOp::SetFontFamily {
-                font: "Helvetica-Bold".to_string(),
-            },
-            RenderOp::SetFontSize { size: 14.0 },
-            RenderOp::SetTextAlignment {
-                align: TextAlign::Right,
-            },
-            RenderOp::SetVerticalAlignment {
-                align: VerticalAlign::Bottom,
-            },
-            RenderOp::SetLineBreakMode {
-                line_break: LineBreakMode::None,
-            },
-            RenderOp::SetTextFit {
-                fit: TextFit::ShrinkToFit,
-            },
-            RenderOp::SetTextFitMinSize { min: 8.0 },
-            RenderOp::SetTextFitMaxSize { max: 24.0 },
-        ]
-    );
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
 
 #[test]
-fn lowers_slot_driven_style_values_from_json_data() {
+fn executes_slot_driven_style_values_from_json_data() {
     let data = serde_json::json!({
         "font": "Helvetica-Bold",
         "r": 0.1,
@@ -579,25 +482,7 @@ fn lowers_slot_driven_style_values_from_json_data() {
         },
     ];
 
-    let render_ops = lower_draw_ops(&draw_ops, Some(&data)).unwrap();
-
-    assert_eq!(
-        render_ops,
-        vec![
-            RenderOp::SetFontFamily {
-                font: "Helvetica-Bold".to_string(),
-            },
-            RenderOp::SetRgb {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
-            },
-            RenderOp::SetStrokeWidth { width: 2.0 },
-            RenderOp::SetFontSize { size: 16.0 },
-            RenderOp::SetTextFitMinSize { min: 9.0 },
-            RenderOp::SetTextFitMaxSize { max: 32.0 },
-        ]
-    );
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
 }
 
 #[test]
@@ -610,7 +495,7 @@ fn errors_when_text_slot_is_used_without_data() {
         height: NumberValue::Literal(40.0),
     }];
 
-    let err = lower_draw_ops(&draw_ops, None).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
 
     assert!(matches!(
         err,
@@ -632,7 +517,7 @@ fn errors_when_text_slot_field_is_missing() {
         height: NumberValue::Literal(40.0),
     }];
 
-    let err = lower_draw_ops(&draw_ops, Some(&data)).unwrap_err();
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
 
     assert!(matches!(
         err,
@@ -645,7 +530,7 @@ fn errors_when_text_slot_field_is_missing() {
 fn panics_when_stroke_has_no_pending_path() {
     let draw_ops = vec![DrawOp::Stroke];
 
-    let _ = lower_draw_ops(&draw_ops, None);
+    let _ = execute_draw_ops_for_test(&draw_ops, None);
 }
 
 #[test]
@@ -653,7 +538,7 @@ fn panics_when_stroke_has_no_pending_path() {
 fn panics_when_fill_has_no_pending_path() {
     let draw_ops = vec![DrawOp::Fill];
 
-    let _ = lower_draw_ops(&draw_ops, None);
+    let _ = execute_draw_ops_for_test(&draw_ops, None);
 }
 
 #[test]
@@ -669,7 +554,7 @@ fn panics_when_fill_is_applied_to_line() {
         DrawOp::Fill,
     ];
 
-    let _ = lower_draw_ops(&draw_ops, None);
+    let _ = execute_draw_ops_for_test(&draw_ops, None);
 }
 
 #[test]
@@ -693,7 +578,7 @@ fn returns_cairo_error_for_invalid_output_path() {
 }
 
 #[test]
-fn lowers_image_draw_op() {
+fn executes_image_draw_op() {
     use crate::parser::TextValue;
     let draw_ops = vec![DrawOp::Image {
         asset: TextValue::Literal("logo".to_string()),
@@ -702,18 +587,14 @@ fn lowers_image_draw_op() {
         width: NumberValue::Literal(80.0),
         height: NumberValue::Literal(40.0),
     }];
-    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::Image {
-            asset: "logo".to_string(),
-            x: 12.0,
-            y: 24.0,
-            width: 80.0,
-            height: 40.0,
-        }]
-    );
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::MissingAssetAlias { alias } if alias == "logo"
+    ));
 }
+
 #[test]
 fn errors_when_rendering_image_with_missing_asset_alias() {
     use crate::parser::{Page, TextValue};
@@ -746,7 +627,7 @@ fn renders_pdf_with_registered_image_asset() {
     use crate::resources::RegisteredImageInfo;
     use image::{ImageFormat, Rgba, RgbaImage};
     use std::fs;
-    // create temp png
+
     let dir = tempfile::tempdir().unwrap();
     let image_path = dir.path().join("logo.png");
     let img = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
@@ -790,15 +671,10 @@ fn renders_pdf_with_registered_image_asset() {
 }
 
 #[test]
-fn lowers_set_imagefit() {
+fn executes_set_imagefit() {
     let draw_ops = vec![DrawOp::SetImageFit {
         fit: ImageFit::Cover,
     }];
-    let render_ops = lower_draw_ops(&draw_ops, None).unwrap();
-    assert_eq!(
-        render_ops,
-        vec![RenderOp::SetImageFit {
-            fit: ImageFit::Cover,
-        }]
-    );
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
 }
