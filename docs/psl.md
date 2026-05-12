@@ -269,11 +269,30 @@ grow textfit
 - `textbox` consumes five values:
   - `text x y width height`
   - `width` and `height` must be `> 0` for literals
+- `concat` consumes one number `count`, then consumes `count` text values and pushes one combined text value
+  - `count` must be a literal non-negative integer
+  - `count` cannot come from a slot
+  - nested `concat` values are rejected by parser
+- `uppercase` consumes one text value and pushes uppercase text
+- `lowercase` consumes one text value and pushes lowercase text
+- `capitalize` consumes one text value and pushes capitalized text (first grapheme uppercased, remainder lowercased)
+- `titlecase` consumes one text value and pushes title-cased text
 
 Example:
 
 ```psl
 $(product_name) 20 40 260 40 textbox
+```
+
+Additional examples:
+
+```psl
+(BUY ) $(B) ( GET ) $(G) 4 concat 20 40 260 40 textbox
+
+$(product_name) uppercase 20 40 260 40 textbox
+$(product_name) lowercase 20 40 260 40 textbox
+$(product_name) capitalize 20 40 260 40 textbox
+$(product_name) titlecase 20 40 260 40 textbox
 ```
 
 ## Image drawing
@@ -387,6 +406,6 @@ end
 
 The following appear in older examples but are not implemented in current parser/renderer:
 
-- `cmyk`, `grey`, `concat`
+- `cmyk`, `grey`
 
 Use only operators listed in this document for reliable results.
