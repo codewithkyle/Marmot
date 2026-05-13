@@ -14,6 +14,7 @@ pub enum BarcodeSymbology {
     Code128B,
     Code128C,
     UPCA,
+    EAN13,
 }
 
 impl BarcodeSymbology {
@@ -24,6 +25,7 @@ impl BarcodeSymbology {
             "c128b" => Some(Self::Code128B),
             "c128c" => Some(Self::Code128C),
             "upca" => Some(Self::UPCA),
+            "ean13" => Some(Self::EAN13),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ impl BarcodeSymbology {
             BarcodeSymbology::Code128C => "c128c".to_string(),
             BarcodeSymbology::Code39 => "c39".to_string(),
             BarcodeSymbology::UPCA => "upca".to_string(),
+            BarcodeSymbology::EAN13 => "ean13".to_string(),
         }
     }
 

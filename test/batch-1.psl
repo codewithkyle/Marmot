@@ -36,6 +36,6 @@ draw begin
   left align
   top valign
   none wrap
-  $(barcode) upca 20 140 180 20 barcode
+  $(barcode) ean13 20 140 180 20 barcode
   (fd) 210 100 60 60 image
 end
