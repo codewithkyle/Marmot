@@ -80,6 +80,12 @@ pub enum DrawOp {
         g: NumberValue,
         b: NumberValue,
     },
+    SetCmyk {
+        c: NumberValue,
+        m: NumberValue,
+        y: NumberValue,
+        k: NumberValue,
+    },
     SetStrokeWidth {
         width: NumberValue,
     },
@@ -499,29 +505,6 @@ impl Parser {
             .collect()
     }
 
-    fn validate_literal_range(
-        value: &NumberValue,
-        operator: &str,
-        operand: &str,
-        min: f64,
-        max: f64,
-        token: &Token,
-    ) -> Result<(), ParseError> {
-        match value {
-            NumberValue::Literal(n) if !n.is_finite() || *n < min || *n > max => {
-                Err(ParseError::InvalidNumberOperand {
-                    operator: operator.to_string(),
-                    operand: operand.to_string(),
-                    value: *n,
-                    expected: format!("{min}..={max}"),
-                    line: token.line,
-                    column: token.column,
-                })
-            }
-            _ => Ok(()),
-        }
-    }
-
     fn validate_literal_positive(
         value: &NumberValue,
         operator: &str,
@@ -744,11 +727,16 @@ impl Parser {
                     let g = Self::pop_number(&mut stack, "rgb", token)?;
                     let r = Self::pop_number(&mut stack, "rgb", token)?;
 
-                    Self::validate_literal_range(&r, "rgb", "r", 0.0, 1.0, token)?;
-                    Self::validate_literal_range(&g, "rgb", "g", 0.0, 1.0, token)?;
-                    Self::validate_literal_range(&b, "rgb", "b", 0.0, 1.0, token)?;
-
                     ops.push(DrawOp::SetRgb { r, g, b });
+                }
+                TokenKind::Word(word) if word == "cmyk" => {
+                    Self::require_stack(&stack, "cmyk", 3, token)?;
+                    let k = Self::pop_number(&mut stack, "cmyk", token)?;
+                    let y = Self::pop_number(&mut stack, "cmyk", token)?;
+                    let m = Self::pop_number(&mut stack, "cmyk", token)?;
+                    let c = Self::pop_number(&mut stack, "cmyk", token)?;
+
+                    ops.push(DrawOp::SetCmyk { c, m, y, k });
                 }
                 TokenKind::Word(word) if word == "strokewidth" => {
                     Self::require_stack(&stack, "strokewidth", 1, token)?;

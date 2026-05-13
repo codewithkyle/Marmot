@@ -65,6 +65,30 @@ fn executes_line_stroke() {
 }
 
 #[test]
+fn executes_cmyk_literal_color() {
+    let draw_ops = vec![DrawOp::SetCmyk {
+        c: NumberValue::Literal(0.1),
+        m: NumberValue::Literal(0.2),
+        y: NumberValue::Literal(0.3),
+        k: NumberValue::Literal(0.4),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn executes_clamped_cmyk_literal_color() {
+    let draw_ops = vec![DrawOp::SetCmyk {
+        c: NumberValue::Literal(2.0),
+        m: NumberValue::Literal(-0.5),
+        y: NumberValue::Literal(0.3),
+        k: NumberValue::Literal(1.2),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
 fn renders_basic_pdf() {
     use crate::parser::{DrawOp, NumberValue, Page};
     use std::fs;
@@ -483,6 +507,48 @@ fn executes_slot_driven_style_values_from_json_data() {
     ];
 
     execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
+}
+
+#[test]
+fn executes_slot_driven_cmyk_values_from_json_data() {
+    let data = serde_json::json!({
+        "c": 0.1,
+        "m": 0.2,
+        "y": 0.3,
+        "k": 0.4
+    });
+
+    let draw_ops = vec![DrawOp::SetCmyk {
+        c: NumberValue::Slot("c".to_string()),
+        m: NumberValue::Slot("m".to_string()),
+        y: NumberValue::Slot("y".to_string()),
+        k: NumberValue::Slot("k".to_string()),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
+}
+
+#[test]
+fn errors_when_cmyk_slot_field_is_missing() {
+    let data = serde_json::json!({
+        "c": 0.1,
+        "m": 0.2,
+        "y": 0.3
+    });
+
+    let draw_ops = vec![DrawOp::SetCmyk {
+        c: NumberValue::Slot("c".to_string()),
+        m: NumberValue::Slot("m".to_string()),
+        y: NumberValue::Slot("y".to_string()),
+        k: NumberValue::Slot("k".to_string()),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap_err();
+
+    assert!(matches!(
+        err,
+        RenderError::MissingSlot { slot } if slot == "k"
+    ));
 }
 
 #[test]

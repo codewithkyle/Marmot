@@ -651,9 +651,25 @@ fn execute_draw_ops(
             }
             DrawOp::SetRgb { r, g, b } => {
                 ctx.set_source_rgb(
-                    eval_number(r, data)?,
-                    eval_number(g, data)?,
-                    eval_number(b, data)?,
+                    eval_number(r, data)?.clamp(0.0, 1.0),
+                    eval_number(g, data)?.clamp(0.0, 1.0),
+                    eval_number(b, data)?.clamp(0.0, 1.0),
+                );
+            }
+            DrawOp::SetCmyk { c, m, y, k } => {
+                let c_actual = eval_number(c, data)?;
+                let m_actual = eval_number(m, data)?;
+                let y_actual = eval_number(y, data)?;
+                let k_actual = eval_number(k, data)?;
+
+                let r = (1.0 - c_actual) * (1.0 - k_actual);
+                let g = (1.0 - m_actual) * (1.0 - k_actual);
+                let b = (1.0 - y_actual) * (1.0 - k_actual);
+
+                ctx.set_source_rgb(
+                    r.clamp(0.0, 1.0),
+                    g.clamp(0.0, 1.0),
+                    b.clamp(0.0, 1.0),
                 );
             }
             DrawOp::SetStrokeWidth { width } => {

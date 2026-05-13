@@ -282,6 +282,61 @@ end
 }
 
 #[test]
+fn parses_cmyk_command() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0.1 0.2 0.3 0.4 cmyk
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::SetCmyk {
+            c: NumberValue::Literal(0.1),
+            m: NumberValue::Literal(0.2),
+            y: NumberValue::Literal(0.3),
+            k: NumberValue::Literal(0.4),
+        }]
+    );
+}
+
+#[test]
+fn errors_when_cmyk_has_too_few_values() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+draw begin
+  0.1 0.2 0.3 cmyk
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::StackUnderflow {
+            operator: "cmyk".to_string(),
+            expected: 1,
+            actual: 0,
+            line: 5,
+            column: 15,
+        }
+    );
+}
+
+#[test]
 fn errors_when_line_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
@@ -516,35 +571,6 @@ end
 }
 
 #[test]
-fn errors_on_invalid_literal_rgb_component() {
-    let source = r#"%!PSL 0.1
-page 612 792
-
-draw begin
-  2 0 0 rgb
-end
-"#;
-
-    let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize().unwrap();
-
-    let mut parser = Parser::new(tokens);
-    let err = parser.parse_template().unwrap_err();
-
-    assert_eq!(
-        err,
-        ParseError::InvalidNumberOperand {
-            operator: "rgb".to_string(),
-            operand: "r".to_string(),
-            value: 2.0,
-            expected: "0..=1".to_string(),
-            line: 5,
-            column: 9,
-        }
-    );
-}
-
-#[test]
 fn allows_slot_rgb_component() {
     let source = r#"%!PSL 0.1
 page 612 792
@@ -570,6 +596,37 @@ end
             r: NumberValue::Slot("r".to_string()),
             g: NumberValue::Literal(0.0),
             b: NumberValue::Literal(0.0),
+        }]
+    );
+}
+
+#[test]
+fn allows_slot_cmyk_component() {
+    let source = r#"%!PSL 0.1
+page 612 792
+
+slots begin
+  c decimal
+end
+
+draw begin
+  $(c) 0 0 0 cmyk
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::SetCmyk {
+            c: NumberValue::Slot("c".to_string()),
+            m: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            k: NumberValue::Literal(0.0),
         }]
     );
 }
