@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
-    fs::{File, read_to_string},
+    fs::{File, create_dir_all, read_to_string},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
@@ -609,18 +609,24 @@ fn ensure_file_exists(path: &Path) -> Result<()> {
 
 fn ensure_dir_exists(path: &Path) -> Result<()> {
     if !path.exists() {
-        bail!("path does not exist: {}", path.display());
+        create_dir_all(path)
+            .with_context(|| format!("failed to create directory: {}", path.display()))?;
+        return Ok(());
     }
+
     if !path.is_dir() {
         bail!("path is not a directory: {}", path.display());
     }
+
     Ok(())
 }
 
 fn ensure_parent_exists(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            bail!("output directory does not exist: {}", parent.display());
+            create_dir_all(parent)
+                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+            return Ok(());
         }
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
             bail!("output parent is not a directory: {}", parent.display());

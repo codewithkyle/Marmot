@@ -129,7 +129,7 @@ marmot batch [OPTIONS] <package> <records> --output-dir <dir> --output-name <tem
 
 Options:
 
-- `--output-dir <DIR>`: destination directory for generated PDFs (must exist)
+- `--output-dir <DIR>`: destination directory for generated PDFs (created if missing)
 - `--output-name <TEMPLATE>`: filename template supporting `{id}` and `{index}`
 - `-j, --jobs <N>`: worker count (`0` = auto-detect CPU parallelism)
 - `--trust-data`: skip upfront per-record slot validation in batch mode
@@ -195,9 +195,9 @@ Common validation behavior:
 - Package path must exist, be a file, and end with `.marmot`.
 - Data path (for `check` or `render` with data) must exist and be a file.
 - Records path (for `batch`) must exist and be a file.
-- Render output parent directory must already exist.
-- Batch output directory must already exist.
-- `pack --output-dir` must exist and be a directory.
+- Render output parent directory is created if missing.
+- Batch output directory is created if missing.
+- `pack --output-dir` is created if missing.
 - `pack` output file extension must be `.marmot`.
 
 ## Troubleshooting
@@ -217,10 +217,10 @@ Common validation behavior:
 - Cause: JSON is missing required slots or has wrong types.
 - Fix: match your JSON fields to slot definitions in template.
 
-## `output directory does not exist`
+## `failed to create directory`
 
-- Cause: render/pack output parent folder is missing.
-- Fix: create the directory first.
+- Cause: output folder cannot be created (permissions, invalid path, read-only filesystem).
+- Fix: choose writable path or adjust permissions.
 
 ## `duplicate font alias` or `duplicate package entry`
 
