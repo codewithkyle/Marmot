@@ -1479,3 +1479,93 @@ end
         } if operator == "barcode" && expected == "string" && found == "number"
     ));
 }
+
+#[test]
+fn parses_code128a_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  sku string required
+end
+draw begin
+  $(sku) c128a 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("sku".to_string()),
+            symbology: BarcodeSymbology::Code128A,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}
+
+#[test]
+fn parses_code128b_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  sku string required
+end
+draw begin
+  $(sku) c128b 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("sku".to_string()),
+            symbology: BarcodeSymbology::Code128B,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}
+
+#[test]
+fn parses_code128c_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  sku string required
+end
+draw begin
+  $(sku) c128c 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("sku".to_string()),
+            symbology: BarcodeSymbology::Code128C,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}

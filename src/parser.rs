@@ -10,13 +10,37 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BarcodeSymbology {
     Code39,
+    Code128A,
+    Code128B,
+    Code128C,
 }
 
 impl BarcodeSymbology {
     pub fn from_word(word: &str) -> Option<Self> {
         match word {
             "c39" => Some(Self::Code39),
+            "c128a" => Some(Self::Code128A),
+            "c128b" => Some(Self::Code128B),
+            "c128c" => Some(Self::Code128C),
             _ => None,
+        }
+    }
+
+    pub fn to_word(&self) -> String {
+        match self {
+            BarcodeSymbology::Code128A => "c128a".to_string(),
+            BarcodeSymbology::Code128B => "c128b".to_string(),
+            BarcodeSymbology::Code128C => "c128c".to_string(),
+            BarcodeSymbology::Code39 => "c39".to_string(),
+        }
+    }
+
+    pub fn to_marker(&self) -> &str {
+        match self {
+            BarcodeSymbology::Code128A => "\u{00C0}",
+            BarcodeSymbology::Code128B => "\u{0181}",
+            BarcodeSymbology::Code128C => "\u{0106}",
+            _ => "",
         }
     }
 }
@@ -167,7 +191,7 @@ pub enum DrawOp {
         y: NumberValue,
         width: NumberValue,
         height: NumberValue,
-    }
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -869,7 +893,7 @@ impl Parser {
                             column: token.column,
                         });
                     }
-                }
+                },
                 TokenKind::Word(word) if BarcodeSymbology::from_word(word).is_some() => {
                     let sym = BarcodeSymbology::from_word(word).unwrap();
                     stack.push(StackValue::BarcodeSymbology(sym));
@@ -886,7 +910,14 @@ impl Parser {
                     Self::validate_literal_positive(&width, "barcode", "width", token)?;
                     Self::validate_literal_positive(&height, "barcode", "height", token)?;
 
-                    ops.push(DrawOp::Barcode { value, symbology, x, y, width, height });
+                    ops.push(DrawOp::Barcode {
+                        value,
+                        symbology,
+                        x,
+                        y,
+                        width,
+                        height,
+                    });
                 }
                 found => {
                     return Err(ParseError::UnexpectedDrawToken {

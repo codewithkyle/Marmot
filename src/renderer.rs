@@ -8,7 +8,7 @@ use std::{
 
 use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
-use barcoders::sym::code39::Code39;
+use barcoders::sym::{code39::Code39, code128::Code128};
 use cairo::{Antialias, Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
@@ -320,12 +320,71 @@ fn render_code39(
     if width <= 0.0 || height <= 0.0 {
         return Err(RenderError::InvalidBarcodeGeometry { width, height });
     }
-
     let modules = encode_code39_modules(value)?;
+    render_barcode(
+        ctx,
+        x,
+        y,
+        width,
+        height,
+        modules,
+        "c39".to_string(),
+        value.to_string(),
+    )?;
+    Ok(())
+}
+
+fn encode_code128_modules(symbol: &BarcodeSymbology, value: &str) -> Result<Vec<u8>, RenderError> {
+    let marker = symbol.to_marker();
+    let payload = format!("{marker}{value}");
+    let code = Code128::new(payload).map_err(|err| RenderError::BarcodeEncode {
+        symbology: symbol.to_word(),
+        data: value.to_string(),
+        message: err.to_string(),
+    })?;
+    Ok(code.encode())
+}
+
+fn render_code128(
+    ctx: &Context,
+    symbol: &BarcodeSymbology,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+    let modules = encode_code128_modules(symbol, value)?;
+    render_barcode(
+        ctx,
+        x,
+        y,
+        width,
+        height,
+        modules,
+        symbol.to_word(),
+        value.to_string(),
+    )?;
+    Ok(())
+}
+
+fn render_barcode(
+    ctx: &Context,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    modules: Vec<u8>,
+    symbol: String,
+    value: String,
+) -> Result<(), RenderError> {
     if modules.is_empty() {
         return Err(RenderError::BarcodeEncode {
-            symbology: "c39".to_string(),
-            data: value.to_string(),
+            symbology: symbol,
+            data: value,
             message: "empty module stream".to_string(),
         });
     }
@@ -685,7 +744,14 @@ fn execute_draw_ops(
 
     for op in draw_ops {
         match op {
-            DrawOp::Barcode { value, symbology, x, y, width, height } => {
+            DrawOp::Barcode {
+                value,
+                symbology,
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let value = eval_text(value, data)?;
                 let x = eval_number(x, data)?;
                 let y = eval_number(y, data)?;
@@ -695,6 +761,15 @@ fn execute_draw_ops(
                 match symbology {
                     BarcodeSymbology::Code39 => {
                         render_code39(ctx, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::Code128A => {
+                        render_code128(ctx, symbology, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::Code128B => {
+                        render_code128(ctx, symbology, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::Code128C => {
+                        render_code128(ctx, symbology, &value, x, y, width, height)?;
                     }
                 }
             }

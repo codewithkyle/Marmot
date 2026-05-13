@@ -886,3 +886,64 @@ fn errors_when_code39_barcode_geometry_is_invalid() {
             if width == 0.0 && height == 50.0
     ));
 }
+
+#[test]
+fn executes_code128a_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code128A,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn executes_code128b_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("Abc-123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code128B,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn executes_code128c_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("12345678".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code128C,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_code128c_data_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("12345".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code128C,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "c128c" && data == "12345"
+    ));
+}
