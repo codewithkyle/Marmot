@@ -1424,3 +1424,58 @@ end
         }]
     );
 }
+
+#[test]
+fn parses_code39_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  sku string required
+end
+draw begin
+  $(sku) c39 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("sku".to_string()),
+            symbology: BarcodeSymbology::Code39,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}
+
+#[test]
+fn errors_when_barcode_data_operand_is_not_string() {
+    let source = r#"%!PSL 0.1
+page 300 200
+draw begin
+  123 c39 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert!(matches!(
+        err,
+        ParseError::UnexpectedStackValue {
+            operator,
+            expected,
+            found,
+            ..
+        } if operator == "barcode" && expected == "string" && found == "number"
+    ));
+}

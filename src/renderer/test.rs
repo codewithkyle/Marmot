@@ -816,3 +816,73 @@ fn eval_text_capitalize() {
     let text = eval_text(&value, None).unwrap();
     assert_eq!(text, "Hello world");
 }
+
+#[test]
+fn executes_code39_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC-123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code39,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn executes_code39_barcode_draw_op_with_slot_data() {
+    let data = serde_json::json!({
+        "sku": "MARMOT-42"
+    });
+
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Slot("sku".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code39,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, Some(&data)).unwrap();
+}
+
+#[test]
+fn errors_when_code39_data_contains_unsupported_characters() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("abc".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code39,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "c39" && data == "abc"
+    ));
+}
+
+#[test]
+fn errors_when_code39_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::Code39,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 50.0
+    ));
+}
