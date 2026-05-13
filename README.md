@@ -16,6 +16,7 @@ The initial goal is to render label-sized PDFs from Marmot templates and JSON/JS
 
 - CLI usage: [`docs/cli.md`](docs/cli.md)
 - PSL language reference: [`docs/psl.md`](docs/psl.md)
+- Print post-processing: [`docs/print-postprocessing.md`](docs/print-postprocessing.md)
 - Docs index: [`docs/index.md`](docs/index.md)
 
 ## PSL (PostScript-Like) Template Language
