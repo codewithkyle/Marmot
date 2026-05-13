@@ -7,6 +7,20 @@ use crate::{
 };
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BarcodeSymbology {
+    Code39,
+}
+
+impl BarcodeSymbology {
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "c39" => Some(Self::Code39),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template {
     pub version: String,
@@ -39,6 +53,7 @@ pub enum AssetType {
 enum StackValue {
     Number(NumberValue),
     Text(TextValue),
+    BarcodeSymbology(BarcodeSymbology),
 }
 
 impl StackValue {
@@ -46,6 +61,7 @@ impl StackValue {
         match self {
             StackValue::Number(_) => "number",
             StackValue::Text(_) => "string",
+            StackValue::BarcodeSymbology(_) => "barcode",
         }
     }
 }
@@ -144,6 +160,14 @@ pub enum DrawOp {
         width: NumberValue,
         height: NumberValue,
     },
+    Barcode {
+        value: TextValue,
+        symbology: BarcodeSymbology,
+        x: NumberValue,
+        y: NumberValue,
+        width: NumberValue,
+        height: NumberValue,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -420,6 +444,33 @@ impl Parser {
             TokenKind::Eof => Ok(()),
             found => Err(ParseError::ExpectedEof {
                 found: found.clone(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
+    }
+
+    fn pop_barcode_symbology(
+        stack: &mut Vec<StackValue>,
+        operator: &str,
+        token: &Token,
+    ) -> Result<BarcodeSymbology, ParseError> {
+        let Some(value) = stack.pop() else {
+            return Err(ParseError::StackUnderflow {
+                operator: operator.to_string(),
+                expected: 1,
+                actual: 0,
+                line: token.line,
+                column: token.column,
+            });
+        };
+
+        match value {
+            StackValue::BarcodeSymbology(symbol) => Ok(symbol),
+            other => Err(ParseError::UnexpectedStackValue {
+                operator: operator.to_string(),
+                expected: "number".to_string(),
+                found: other.type_name().to_string(),
                 line: token.line,
                 column: token.column,
             }),
@@ -818,7 +869,25 @@ impl Parser {
                             column: token.column,
                         });
                     }
-                },
+                }
+                TokenKind::Word(word) if BarcodeSymbology::from_word(word).is_some() => {
+                    let sym = BarcodeSymbology::from_word(word).unwrap();
+                    stack.push(StackValue::BarcodeSymbology(sym));
+                }
+                TokenKind::Word(word) if word == "barcode" => {
+                    Self::require_stack(&stack, "barcode", 6, token)?;
+                    let height = Self::pop_number(&mut stack, "barcode", token)?;
+                    let width = Self::pop_number(&mut stack, "barcode", token)?;
+                    let y = Self::pop_number(&mut stack, "barcode", token)?;
+                    let x = Self::pop_number(&mut stack, "barcode", token)?;
+                    let symbology = Self::pop_barcode_symbology(&mut stack, "barcode", token)?;
+                    let value = Self::pop_string(&mut stack, "barcode", token)?;
+
+                    Self::validate_literal_positive(&width, "barcode", "width", token)?;
+                    Self::validate_literal_positive(&height, "barcode", "height", token)?;
+
+                    ops.push(DrawOp::Barcode { value, symbology, x, y, width, height });
+                }
                 found => {
                     return Err(ParseError::UnexpectedDrawToken {
                         found: found.clone(),

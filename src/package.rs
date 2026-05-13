@@ -10,19 +10,20 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 use crate::ensure_file_exists;
 
 pub struct MarmotPackage {
+    _temp_dir: tempfile::TempDir,
     root: PathBuf,
 }
 
 impl MarmotPackage {
     pub fn open(path: &Path) -> Result<Self> {
         Self::ensure_marmot_archive_path(path)?;
-        let temp_dir =
+        let _temp_dir =
             tempfile::tempdir().context("failed to create temporary package directory")?;
-        Self::unpack_archive(path, temp_dir.path())?;
+        Self::unpack_archive(path, _temp_dir.path())?;
 
-        let root = temp_dir.path().to_path_buf();
+        let root = _temp_dir.path().to_path_buf();
 
-        let package = Self { root };
+        let package = Self { root, _temp_dir };
         package.ensure_template_exists()?;
 
         Ok(package)

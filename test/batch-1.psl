@@ -7,7 +7,6 @@ slots begin
   barcode string required
 end
 fonts begin
-  barcode_font "fonts/LibreBarcode39.ttf"
   kablammo "fonts/Kablammo.ttf"
 end
 assets begin
@@ -37,7 +36,6 @@ draw begin
   left align
   top valign
   none wrap
-  (barcode_font) font
-  $(barcode) 20 140 260 20 textbox
+  $(barcode) c39 20 140 180 20 barcode
   (fd) 210 100 60 60 image
 end

@@ -6,9 +6,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::parser::{AssetType, DrawOp, NumberValue, Page, TextValue};
+use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
-use cairo::{Context, PdfSurface};
+use barcoders::sym::code39::Code39;
+use cairo::{Antialias, Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
@@ -42,6 +43,15 @@ pub enum RenderError {
     ImageDecode {
         alias: String,
         path: PathBuf,
+        message: String,
+    },
+    InvalidBarcodeGeometry {
+        width: f64,
+        height: f64,
+    },
+    BarcodeEncode {
+        symbology: String,
+        data: String,
         message: String,
     },
     Cairo(cairo::Error),
@@ -204,20 +214,23 @@ impl Default for RenderState {
 }
 
 fn to_title_case(input: &str) -> String {
-    input.split_word_bounds().map(|chunk| {
-        if chunk.chars().any(|c| c.is_alphabetic()) {
-            let mut graphemes = chunk.graphemes(true);
-            match graphemes.next() {
-                Some(first) => {
-                    let rest: String = graphemes.collect();
-                    format!("{}{}", first.to_uppercase(), rest.to_lowercase())
+    input
+        .split_word_bounds()
+        .map(|chunk| {
+            if chunk.chars().any(|c| c.is_alphabetic()) {
+                let mut graphemes = chunk.graphemes(true);
+                match graphemes.next() {
+                    Some(first) => {
+                        let rest: String = graphemes.collect();
+                        format!("{}{}", first.to_uppercase(), rest.to_lowercase())
+                    }
+                    None => String::new(),
                 }
-                None => String::new()
+            } else {
+                chunk.to_string()
             }
-        } else {
-            chunk.to_string()
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 fn to_capitalize(input: &str) -> String {
@@ -227,7 +240,7 @@ fn to_capitalize(input: &str) -> String {
             let rest: String = graphemes.collect();
             format!("{}{}", first.to_uppercase(), rest.to_lowercase())
         }
-        None => String::new()
+        None => String::new(),
     }
 }
 
@@ -285,6 +298,54 @@ fn eval_number(value: &NumberValue, data: Option<&Value>) -> Result<f64, RenderE
                 .ok_or_else(|| RenderError::InvalidNumberSlot { slot: name.clone() })
         }
     }
+}
+
+fn encode_code39_modules(data: &str) -> Result<Vec<u8>, RenderError> {
+    let code = Code39::new(data).map_err(|err| RenderError::BarcodeEncode {
+        symbology: "c39".to_string(),
+        data: data.to_string(),
+        message: err.to_string(),
+    })?;
+    Ok(code.encode())
+}
+
+fn render_code39(
+    ctx: &Context,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+
+    let modules = encode_code39_modules(value)?;
+    if modules.is_empty() {
+        return Err(RenderError::BarcodeEncode {
+            symbology: "c39".to_string(),
+            data: value.to_string(),
+            message: "empty module stream".to_string(),
+        });
+    }
+
+    let module_w = width / modules.len() as f64;
+
+    ctx.save()?;
+    ctx.set_antialias(Antialias::None);
+
+    for (i, bit) in modules.iter().enumerate() {
+        if *bit == 1 {
+            let bx = x + (i as f64 * module_w);
+            ctx.rectangle(bx, y, module_w, height);
+        }
+    }
+
+    ctx.fill()?;
+    ctx.restore()?;
+
+    Ok(())
 }
 
 fn to_pango_units(value: f64) -> i32 {
@@ -624,6 +685,19 @@ fn execute_draw_ops(
 
     for op in draw_ops {
         match op {
+            DrawOp::Barcode { value, symbology, x, y, width, height } => {
+                let value = eval_text(value, data)?;
+                let x = eval_number(x, data)?;
+                let y = eval_number(y, data)?;
+                let width = eval_number(width, data)?;
+                let height = eval_number(height, data)?;
+
+                match symbology {
+                    BarcodeSymbology::Code39 => {
+                        render_code39(ctx, &value, x, y, width, height)?;
+                    }
+                }
+            }
             DrawOp::SetImageFit { fit } => {
                 state.image_fit = *fit;
             }
@@ -666,11 +740,7 @@ fn execute_draw_ops(
                 let g = (1.0 - m_actual) * (1.0 - k_actual);
                 let b = (1.0 - y_actual) * (1.0 - k_actual);
 
-                ctx.set_source_rgb(
-                    r.clamp(0.0, 1.0),
-                    g.clamp(0.0, 1.0),
-                    b.clamp(0.0, 1.0),
-                );
+                ctx.set_source_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
             }
             DrawOp::SetStrokeWidth { width } => {
                 ctx.set_line_width(eval_number(width, data)?);
