@@ -8,7 +8,7 @@ use std::{
 
 use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
-use barcoders::sym::{code39::Code39, code128::Code128, ean13::{EAN13, UPCA}};
+use barcoders::sym::{code39::Code39, code128::Code128, ean8::EAN8, ean13::{EAN13, UPCA}};
 use cairo::{Antialias, Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
@@ -384,6 +384,10 @@ fn is_retail_guard_module(i: usize) -> bool {
     (0..3).contains(&i) || (45..50).contains(&i) || (92..95).contains(&i)
 }
 
+fn is_ean8_guard_module(i: usize) -> bool {
+    (0..3).contains(&i) || (31..36).contains(&i) || (64..67).contains(&i)
+}
+
 fn render_upca(
     ctx: &Context,
     value: &str,
@@ -429,6 +433,74 @@ fn render_upca(
         if *bit == 1 {
             let bx = x + (i as f64 * x_dim);
             let bar_h = if is_retail_guard_module(i) {
+                height
+            } else {
+                data_h
+            };
+            ctx.rectangle(bx, y, x_dim, bar_h);
+        }
+    }
+
+    ctx.fill()?;
+    ctx.restore()?;
+
+    Ok(())
+}
+
+fn encode_ean8_modules(value: &str) -> Result<Vec<u8>, RenderError> {
+    let code = EAN8::new(value).map_err(|err| RenderError::BarcodeEncode {
+        symbology: "ean8".to_string(),
+        data: value.to_string(),
+        message: err.to_string(),
+    })?;
+    Ok(code.encode())
+}
+
+fn render_ean8(
+    ctx: &Context,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+
+    let modules = encode_ean8_modules(value)?;
+    if modules.is_empty() {
+        return Err(RenderError::BarcodeEncode {
+            symbology: "ean8".to_string(),
+            data: value.to_string(),
+            message: "empty module stream".to_string(),
+        });
+    }
+
+    if modules.len() != 67 {
+        return render_barcode(
+            ctx,
+            x,
+            y,
+            width,
+            height,
+            modules,
+            "ean8".to_string(),
+            value.to_string(),
+        );
+    }
+
+    let x_dim = width / modules.len() as f64;
+    let guard_extra = 5.0 * x_dim;
+    let data_h = (height - guard_extra).max(0.0);
+
+    ctx.save()?;
+    ctx.set_antialias(Antialias::None);
+
+    for (i, bit) in modules.iter().enumerate() {
+        if *bit == 1 {
+            let bx = x + (i as f64 * x_dim);
+            let bar_h = if is_ean8_guard_module(i) {
                 height
             } else {
                 data_h
@@ -916,6 +988,9 @@ fn execute_draw_ops(
                     }
                     BarcodeSymbology::EAN13 => {
                         render_ean13(ctx, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::EAN8 => {
+                        render_ean8(ctx, &value, x, y, width, height)?;
                     }
                 }
             }

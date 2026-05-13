@@ -1629,3 +1629,33 @@ end
         }]
     );
 }
+
+#[test]
+fn parses_ean8_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  ean string required
+end
+draw begin
+  $(ean) ean8 20 20 220 50 barcode
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("ean".to_string()),
+            symbology: BarcodeSymbology::EAN8,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}

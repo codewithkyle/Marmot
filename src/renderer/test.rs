@@ -1066,3 +1066,70 @@ fn errors_when_ean13_barcode_geometry_is_invalid() {
             if width == 0.0 && height == 50.0
     ));
 }
+
+#[test]
+fn executes_ean8_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("55123457".to_string()),
+        symbology: crate::parser::BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_ean8_data_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "ean8" && data == "ABC123"
+    ));
+}
+
+#[test]
+fn errors_when_ean8_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("55123457".to_string()),
+        symbology: crate::parser::BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 50.0
+    ));
+}
+
+#[test]
+fn ean8_guard_module_boundaries() {
+    assert!(is_ean8_guard_module(0));
+    assert!(is_ean8_guard_module(2));
+    assert!(!is_ean8_guard_module(3));
+
+    assert!(is_ean8_guard_module(31));
+    assert!(is_ean8_guard_module(35));
+    assert!(!is_ean8_guard_module(36));
+
+    assert!(is_ean8_guard_module(64));
+    assert!(is_ean8_guard_module(66));
+    assert!(!is_ean8_guard_module(67));
+}
