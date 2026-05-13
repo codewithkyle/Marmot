@@ -200,11 +200,6 @@ fn validate_package_build_options(options: &PackageBuilderOptions) -> Result<()>
         );
     }
 
-    // TODO: figure out if we should allow overwriting packages
-    if options.output_file.exists() {
-        bail!("package already exists: {}", options.output_file.display());
-    }
-
     if let Some(parent) = options.output_file.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
             bail!("output directory does not exist: {}", parent.display());

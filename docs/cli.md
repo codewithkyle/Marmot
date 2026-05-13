@@ -177,7 +177,6 @@ When options are used, it can also contain:
 Important:
 
 - `pack` deduplicates archive paths and errors on duplicate filenames.
-- `pack` currently refuses to overwrite an existing `.marmot` output file.
 
 ## Font Resolution at Render Time
 
