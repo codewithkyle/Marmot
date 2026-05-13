@@ -8,7 +8,7 @@ use std::{
 
 use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
-use barcoders::sym::{code39::Code39, code128::Code128};
+use barcoders::sym::{code39::Code39, code128::Code128, ean13::UPCA};
 use cairo::{Antialias, Context, PdfSurface};
 use pango::FontDescription;
 use serde_json::Value;
@@ -368,6 +368,78 @@ fn render_code128(
         symbol.to_word(),
         value.to_string(),
     )?;
+    Ok(())
+}
+
+fn encode_upca_modules(value: &str) -> Result<Vec<u8>, RenderError> {
+    let code = UPCA::new(value).map_err(|err| RenderError::BarcodeEncode {
+        symbology: "upca".to_string(),
+        data: value.to_string(),
+        message: err.to_string(),
+    })?;
+    Ok(code.encode())
+}
+
+fn is_upca_guard_module(i: usize) -> bool {
+    (0..3).contains(&i) || (45..50).contains(&i) || (92..95).contains(&i)
+}
+
+fn render_upca(
+    ctx: &Context,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+
+    let modules = encode_upca_modules(value)?;
+    if modules.is_empty() {
+        return Err(RenderError::BarcodeEncode {
+            symbology: "upca".to_string(),
+            data: value.to_string(),
+            message: "empty module stream".to_string(),
+        });
+    }
+
+    if modules.len() != 95 {
+        return render_barcode(
+            ctx,
+            x,
+            y,
+            width,
+            height,
+            modules,
+            "upca".to_string(),
+            value.to_string(),
+        );
+    }
+
+    let x_dim = width / modules.len() as f64;
+    let guard_extra = 5.0 * x_dim;
+    let data_h = (height - guard_extra).max(0.0);
+
+    ctx.save()?;
+    ctx.set_antialias(Antialias::None);
+
+    for (i, bit) in modules.iter().enumerate() {
+        if *bit == 1 {
+            let bx = x + (i as f64 * x_dim);
+            let bar_h = if is_upca_guard_module(i) {
+                height
+            } else {
+                data_h
+            };
+            ctx.rectangle(bx, y, x_dim, bar_h);
+        }
+    }
+
+    ctx.fill()?;
+    ctx.restore()?;
+
     Ok(())
 }
 
@@ -770,6 +842,9 @@ fn execute_draw_ops(
                     }
                     BarcodeSymbology::Code128C => {
                         render_code128(ctx, symbology, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::UPCA => {
+                        render_upca(ctx, &value, x, y, width, height)?;
                     }
                 }
             }

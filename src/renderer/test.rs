@@ -947,3 +947,70 @@ fn errors_when_code128c_data_is_invalid() {
             if symbology == "c128c" && data == "12345"
     ));
 }
+
+#[test]
+fn executes_upca_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("036000291452".to_string()),
+        symbology: crate::parser::BarcodeSymbology::UPCA,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_upca_data_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC123".to_string()),
+        symbology: crate::parser::BarcodeSymbology::UPCA,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "upca" && data == "ABC123"
+    ));
+}
+
+#[test]
+fn errors_when_upca_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("036000291452".to_string()),
+        symbology: crate::parser::BarcodeSymbology::UPCA,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 50.0
+    ));
+}
+
+#[test]
+fn upca_guard_module_boundaries() {
+    assert!(is_upca_guard_module(0));
+    assert!(is_upca_guard_module(2));
+    assert!(!is_upca_guard_module(3));
+
+    assert!(is_upca_guard_module(45));
+    assert!(is_upca_guard_module(49));
+    assert!(!is_upca_guard_module(50));
+
+    assert!(is_upca_guard_module(92));
+    assert!(is_upca_guard_module(94));
+    assert!(!is_upca_guard_module(95));
+}
