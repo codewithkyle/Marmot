@@ -17,6 +17,7 @@ pub enum BarcodeSymbology {
     EAN13,
     EAN8,
     QR,
+    DataMatrix
 }
 
 impl BarcodeSymbology {
@@ -30,6 +31,7 @@ impl BarcodeSymbology {
             "ean13" => Some(Self::EAN13),
             "ean8" => Some(Self::EAN8),
             "qr" => Some(Self::QR),
+            "datamatrix" => Some(Self::DataMatrix),
             _ => None,
         }
     }
@@ -44,6 +46,7 @@ impl BarcodeSymbology {
             BarcodeSymbology::EAN13 => "ean13".to_string(),
             BarcodeSymbology::EAN8 => "ean8".to_string(),
             BarcodeSymbology::QR => "qr".to_string(),
+            BarcodeSymbology::DataMatrix => "datamatrix".to_string(),
         }
     }
 

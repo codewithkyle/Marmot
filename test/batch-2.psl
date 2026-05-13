@@ -37,5 +37,5 @@ draw begin
   top valign
   none wrap
   $(barcode) upca 20 140 180 20 barcode
-  (https://example.com/) qr 210 100 60 60 barcode
+  (LOT-A19B-EXP-2027-12) datamatrix 210 100 60 60 barcode
 end

@@ -1186,3 +1186,56 @@ fn errors_when_qr_barcode_geometry_is_invalid() {
             if width == 0.0 && height == 140.0
     ));
 }
+
+#[test]
+fn executes_datamatrix_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("MARMOT-DM-001".to_string()),
+        symbology: crate::parser::BarcodeSymbology::DataMatrix,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(140.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_datamatrix_data_is_too_long() {
+    let too_long = "A".repeat(10000);
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal(too_long.clone()),
+        symbology: crate::parser::BarcodeSymbology::DataMatrix,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(140.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "datamatrix" && data == too_long
+    ));
+}
+
+#[test]
+fn errors_when_datamatrix_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("MARMOT-DM-001".to_string()),
+        symbology: crate::parser::BarcodeSymbology::DataMatrix,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 140.0
+    ));
+}
