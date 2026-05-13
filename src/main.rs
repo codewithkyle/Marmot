@@ -677,11 +677,7 @@ fn format_output_name(template: &str, record: &Value, index: usize) -> Result<St
 
     if out.contains("..") {
         bail!("output file contains unsafe '..': {}", out);
-    }
-
-    if Path::new(&out).is_absolute() {
-        bail!("output filename must be relative: {}", out);
-    }
+    } 
 
     Ok(out)
 }

@@ -161,7 +161,7 @@ Output name template notes:
 - `{index}` uses 1-based input line number.
 - `{id}` requires an `id` field in each record and must be string/number/bool.
 - Output names are sanitized to avoid invalid filesystem characters.
-- Absolute paths and `..` segments are rejected.
+- Path `..` segments are rejected.
 
 ## Package Format
 

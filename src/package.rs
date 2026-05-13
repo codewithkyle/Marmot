@@ -40,10 +40,6 @@ impl MarmotPackage {
     pub fn resolve_path(&self, package_relative_path: &str) -> Result<PathBuf> {
         let relative = Path::new(package_relative_path);
 
-        if relative.is_absolute() {
-            bail!("package path must be relative: {package_relative_path}");
-        }
-
         for component in relative.components() {
             match component {
                 Component::Normal(_) => {}
