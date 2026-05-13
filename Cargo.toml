@@ -18,6 +18,7 @@ ttf-parser = "0.25.1"
 image = { version = "0.25", default-features = false, features = ["png","jpeg","webp"] }
 unicode-segmentation = "1.13.2"
 barcoders = { version = "2", default-features = false }
+qrcode = { version = "0.14", default-features = false }
 
 [build-dependencies]
 pkg-config = "0.3"

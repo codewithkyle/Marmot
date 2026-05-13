@@ -8,11 +8,23 @@ use std::{
 
 use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
-use barcoders::sym::{code39::Code39, code128::Code128, ean8::EAN8, ean13::{EAN13, UPCA}};
+use barcoders::sym::{
+    code39::Code39,
+    code128::Code128,
+    ean8::EAN8,
+    ean13::{EAN13, UPCA},
+};
 use cairo::{Antialias, Context, PdfSurface};
 use pango::FontDescription;
+use qrcode::{Color, EcLevel, QrCode};
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Debug, PartialEq)]
+struct EncodedQr {
+    size: usize,
+    modules: Vec<bool>,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
@@ -619,6 +631,82 @@ fn render_barcode(
     Ok(())
 }
 
+fn encode_qr_matrix(value: &str) -> Result<EncodedQr, RenderError> {
+    let code =
+        QrCode::with_error_correction_level(value.as_bytes(), EcLevel::M).map_err(|err| {
+            RenderError::BarcodeEncode {
+                symbology: "qr".to_string(),
+                data: value.to_string(),
+                message: err.to_string(),
+            }
+        })?;
+
+    let size = code.width();
+    let modules = code
+        .into_colors()
+        .into_iter()
+        .map(|c| matches!(c, Color::Dark))
+        .collect::<Vec<bool>>();
+
+    Ok(EncodedQr { size, modules })
+}
+
+fn render_qr(
+    ctx: &Context,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+
+    let qr = encode_qr_matrix(value)?;
+    if qr.size == 0 || qr.modules.len() != qr.size * qr.size {
+        return Err(RenderError::BarcodeEncode {
+            symbology: "qr".to_string(),
+            data: value.to_string(),
+            message: "invalid qr matrix".to_string(),
+        });
+    }
+
+    let quiet_zone_modules: usize = 4;
+    let total_modules = qr.size + (quiet_zone_modules * 2);
+
+    let cell = (width / total_modules as f64).min(height / total_modules as f64);
+    if !cell.is_finite() || cell <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+
+    let draw_w = cell * total_modules as f64;
+    let draw_h = cell * total_modules as f64;
+    let origin_x = x + (width - draw_w) / 2.0;
+    let origin_y = y + (height - draw_h) / 2.0;
+
+    ctx.save()?;
+    ctx.set_antialias(Antialias::None);
+    ctx.rectangle(x, y, width, height);
+    ctx.clip();
+
+    for row in 0..qr.size {
+        for col in 0..qr.size {
+            let idx = row * qr.size + col;
+            if qr.modules[idx] {
+                let px = origin_x + (col + quiet_zone_modules) as f64 * cell;
+                let py = origin_y + (row + quiet_zone_modules) as f64 * cell;
+                ctx.rectangle(px, py, cell, cell);
+            }
+        }
+    }
+
+    ctx.fill()?;
+    ctx.restore()?;
+
+    Ok(())
+}
+
 fn to_pango_units(value: f64) -> i32 {
     (value * pango::SCALE as f64) as i32
 }
@@ -991,6 +1079,9 @@ fn execute_draw_ops(
                     }
                     BarcodeSymbology::EAN8 => {
                         render_ean8(ctx, &value, x, y, width, height)?;
+                    }
+                    BarcodeSymbology::QR => {
+                        render_qr(ctx, &value, x, y, width, height)?;
                     }
                 }
             }

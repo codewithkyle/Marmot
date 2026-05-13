@@ -1133,3 +1133,56 @@ fn ean8_guard_module_boundaries() {
     assert!(is_ean8_guard_module(66));
     assert!(!is_ean8_guard_module(67));
 }
+
+#[test]
+fn executes_qr_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("https://example.com/marmot".to_string()),
+        symbology: crate::parser::BarcodeSymbology::QR,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(140.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_qr_data_is_too_long() {
+    let too_long = "A".repeat(6000);
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal(too_long.clone()),
+        symbology: crate::parser::BarcodeSymbology::QR,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(140.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "qr" && data == too_long
+    ));
+}
+
+#[test]
+fn errors_when_qr_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("https://example.com".to_string()),
+        symbology: crate::parser::BarcodeSymbology::QR,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(140.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 140.0
+    ));
+}
