@@ -5,7 +5,28 @@ use crate::{
     lexer::{Token, TokenKind},
     renderer::{ImageFit, LineBreakMode, TextAlign, TextFit, VerticalAlign},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameDecl {
+    pub index: u32,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameDrawBlock {
+    pub index: u32,
+    pub ops: Vec<DrawOp>,
+}
+
+impl Default for FrameDrawBlock {
+    fn default() -> Self {
+        Self {
+            index: 0,
+            ops: Vec::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BarcodeSymbology {
@@ -17,7 +38,7 @@ pub enum BarcodeSymbology {
     EAN13,
     EAN8,
     QR,
-    DataMatrix
+    DataMatrix,
 }
 
 impl BarcodeSymbology {
@@ -65,9 +86,10 @@ pub struct Template {
     pub version: String,
     pub page: Page,
     pub slots: Vec<SlotDecl>,
-    pub draw: Vec<DrawOp>,
     pub fonts: Vec<FontDecl>,
     pub assets: Vec<AssetDecl>,
+    pub frames: Vec<FrameDecl>,
+    pub draw_frames: Vec<FrameDrawBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -264,6 +286,16 @@ pub enum ParseError {
         line: usize,
         column: usize,
     },
+    UnexpectedFrameToken {
+        found: TokenKind,
+        line: usize,
+        column: usize,
+    },
+    UnknownFrameIndex {
+        index: u32,
+        line: usize,
+        column: usize,
+    },
     UnexpectedStackValue {
         operator: String,
         expected: String,
@@ -353,10 +385,10 @@ impl Parser {
         let slots = self.parse_optional_slots()?;
         let fonts = self.parse_optional_fonts()?;
         let assets = self.parse_optional_assets()?;
-
         let slot_lookup = Self::build_slot_lookup(&slots);
-
-        let draw = self.parse_draw(&slot_lookup)?;
+        let frames = self.parse_frames()?;
+        let frame_lookup = Self::build_frame_lookup(&frames);
+        let draw_frames = self.parse_draw(&slot_lookup, &frame_lookup)?;
 
         self.expect_eof()?;
 
@@ -364,9 +396,10 @@ impl Parser {
             version,
             page,
             slots,
-            draw,
             fonts,
             assets,
+            frames,
+            draw_frames,
         })
     }
 
@@ -620,6 +653,10 @@ impl Parser {
             .collect()
     }
 
+    fn build_frame_lookup(frames: &[FrameDecl]) -> HashSet<u32> {
+        frames.iter().map(|frame| frame.index).collect()
+    }
+
     fn validate_literal_positive(
         value: &NumberValue,
         operator: &str,
@@ -641,8 +678,62 @@ impl Parser {
         }
     }
 
-    fn parse_draw(&mut self, slots: &HashMap<String, SlotType>) -> Result<Vec<DrawOp>, ParseError> {
+    fn parse_draw(
+        &mut self,
+        slots: &HashMap<String, SlotType>,
+        declared_frames: &HashSet<u32>,
+    ) -> Result<Vec<FrameDrawBlock>, ParseError> {
         self.expect_word("draw")?;
+        self.expect_word("begin")?;
+
+        let mut frames: Vec<FrameDrawBlock> = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "draw block".to_string(),
+                });
+            }
+
+            let frame = self.parse_frame_draw_block(slots, declared_frames)?;
+            frames.push(frame);
+        }
+
+        self.expect_word("end")?;
+        Ok(frames)
+    }
+
+    fn parse_frame_draw_block(
+        &mut self,
+        slots: &HashMap<String, SlotType>,
+        declared_frames: &HashSet<u32>,
+    ) -> Result<FrameDrawBlock, ParseError> {
+        self.expect_word("frame")?;
+
+        let idx_token = self.advance().clone();
+        let index = match idx_token.kind {
+            TokenKind::Number(n)
+                if n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 =>
+            {
+                n as u32
+            }
+            found => {
+                return Err(ParseError::UnexpectedFrameToken {
+                    found,
+                    line: idx_token.line,
+                    column: idx_token.column,
+                });
+            }
+        };
+
+        if !declared_frames.contains(&index) {
+            return Err(ParseError::UnknownFrameIndex {
+                index,
+                line: idx_token.line,
+                column: idx_token.column,
+            });
+        }
+
         self.expect_word("begin")?;
 
         let mut stack: Vec<StackValue> = Vec::new();
@@ -652,321 +743,12 @@ impl Parser {
         while !self.check_word("end") {
             if self.is_eof() {
                 return Err(ParseError::UnexpectedEof {
-                    context: "draw block".to_string(),
+                    context: "frame draw block".to_string(),
                 });
             }
 
-            let token = self.advance();
-
-            match &token.kind {
-                TokenKind::Number(value) => {
-                    stack.push(StackValue::Number(NumberValue::Literal(*value)));
-                }
-                TokenKind::String(value) => {
-                    stack.push(StackValue::Text(TextValue::Literal(value.clone())));
-                }
-                TokenKind::Slot(slot_name) => {
-                    let Some(slot_ty) = slots.get(slot_name) else {
-                        return Err(ParseError::UnknownSlot {
-                            name: slot_name.clone(),
-                            line: token.line,
-                            column: token.column,
-                        });
-                    };
-
-                    match slot_ty {
-                        SlotType::String => {
-                            stack.push(StackValue::Text(TextValue::Slot(slot_name.clone())));
-                        }
-                        SlotType::Int | SlotType::Decimal => {
-                            stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
-                        }
-                    }
-                }
-                TokenKind::Word(word) if word == "concat" => {
-                    Self::require_stack(&stack, "concat", 1, token)?;
-                    let count_value = Self::pop_number(&mut stack, "concat", token)?;
-                    let count = match count_value {
-                        NumberValue::Literal(n)
-                            if n.is_finite() && n >= 0.0 && n.fract() == 0.0 =>
-                        {
-                            n as usize
-                        }
-                        NumberValue::Literal(n) => {
-                            return Err(ParseError::InvalidNumberOperand {
-                                operator: "concat".to_string(),
-                                operand: ">= 0.0".to_string(),
-                                value: n,
-                                expected: "non-negative integer".to_string(),
-                                line: token.line,
-                                column: token.column,
-                            });
-                        }
-                        NumberValue::Slot(name) => {
-                            return Err(ParseError::MustBeLiteralNumber {
-                                slot: name.to_string(),
-                                line: token.line,
-                                column: token.column,
-                            });
-                        }
-                    };
-                    Self::require_stack(&stack, "concat", count, token)?;
-                    let mut values: Vec<TextValue> = Vec::new();
-                    for _ in 0..count {
-                        let value = Self::pop_string_or_number(&mut stack, "concat", token)?;
-                        //match value {
-                            //TextValue::Concat(_) => {
-                                //return Err(ParseError::InvalidConcatOperation {
-                                    //line: token.line,
-                                    //column: token.column,
-                                //});
-                            //}
-                            //_ => {}
-                        //};
-                        values.push(value);
-                    }
-                    values.reverse();
-                    stack.push(StackValue::Text(TextValue::Concat(values)));
-                }
-                TokenKind::Word(word) if word == "uppercase" => {
-                    Self::require_stack(&stack, "uppercase", 1, token)?;
-                    let value = Self::pop_string(&mut stack, "uppercase", token)?;
-                    stack.push(StackValue::Text(TextValue::UpperCase(Box::new(value))));
-                }
-                TokenKind::Word(word) if word == "lowercase" => {
-                    Self::require_stack(&stack, "lowercase", 1, token)?;
-                    let value = Self::pop_string(&mut stack, "lowercase", token)?;
-                    stack.push(StackValue::Text(TextValue::LowerCase(Box::new(value))));
-                }
-                TokenKind::Word(word) if word == "capitalize" => {
-                    Self::require_stack(&stack, "capitalize", 1, token)?;
-                    let value = Self::pop_string(&mut stack, "capitalize", token)?;
-                    stack.push(StackValue::Text(TextValue::Capitalize(Box::new(value))));
-                }
-                TokenKind::Word(word) if word == "titlecase" => {
-                    Self::require_stack(&stack, "title", 1, token)?;
-                    let value = Self::pop_string(&mut stack, "title", token)?;
-                    stack.push(StackValue::Text(TextValue::TitleCase(Box::new(value))));
-                }
-                TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
-                    let fit = ImageFit::from_word(word).unwrap();
-                    self.expect_word("imagefit")?;
-                    ops.push(DrawOp::SetImageFit { fit });
-                }
-                TokenKind::Word(word) if word == "image" => {
-                    Self::require_stack(&stack, "image", 5, token)?;
-                    let height = Self::pop_number(&mut stack, "image", token)?;
-                    let width = Self::pop_number(&mut stack, "image", token)?;
-                    let y = Self::pop_number(&mut stack, "image", token)?;
-                    let x = Self::pop_number(&mut stack, "image", token)?;
-                    let asset = Self::pop_string(&mut stack, "image", token)?;
-
-                    Self::validate_literal_positive(&width, "image", "width", token)?;
-                    Self::validate_literal_positive(&height, "image", "height", token)?;
-
-                    ops.push(DrawOp::Image {
-                        asset,
-                        x,
-                        y,
-                        width,
-                        height,
-                    });
-                }
-                TokenKind::Word(word) if word == "font" => {
-                    Self::require_stack(&stack, "font", 1, token)?;
-                    let font = Self::pop_string(&mut stack, "font", token)?;
-                    ops.push(DrawOp::SetFontFamily { font });
-                }
-                TokenKind::Word(word) if TextAlign::from_word(word).is_some() => {
-                    let align = TextAlign::from_word(word).unwrap();
-                    self.expect_word("align")?;
-                    ops.push(DrawOp::SetTextAlignment { align });
-                }
-                TokenKind::Word(word) if VerticalAlign::from_word(word).is_some() => {
-                    let align = VerticalAlign::from_word(word).unwrap();
-                    self.expect_word("valign")?;
-                    ops.push(DrawOp::SetVerticalAlignment { align });
-                }
-                TokenKind::Word(word) if LineBreakMode::from_word(word).is_some() => {
-                    let break_mode = LineBreakMode::from_word(word).unwrap();
-                    self.expect_word("wrap")?;
-                    ops.push(DrawOp::SetLineBreakMode {
-                        line_break: break_mode,
-                    });
-                }
-                TokenKind::Word(word) if TextFit::from_word(word).is_some() => {
-                    let fit = TextFit::from_word(word).unwrap();
-                    self.expect_word("textfit")?;
-                    ops.push(DrawOp::SetTextFit { fit });
-                }
-                TokenKind::Word(word) if word == "textfitmin" => {
-                    Self::require_stack(&stack, "textfitmin", 1, token)?;
-                    let size = Self::pop_number(&mut stack, "textfitmin", token)?;
-                    Self::validate_literal_positive(&size, "textfitmin", "size", token)?;
-                    ops.push(DrawOp::SetTextFitMinSize { min: size });
-                }
-                TokenKind::Word(word) if word == "textfitmax" => {
-                    Self::require_stack(&stack, "textfitmax", 1, token)?;
-                    let size = Self::pop_number(&mut stack, "textfitmax", token)?;
-                    Self::validate_literal_positive(&size, "textfitmax", "size", token)?;
-                    ops.push(DrawOp::SetTextFitMaxSize { max: size });
-                }
-                TokenKind::Word(word) if word == "fontsize" => {
-                    Self::require_stack(&stack, "fontsize", 1, token)?;
-                    let size = Self::pop_number(&mut stack, "fontsize", token)?;
-                    Self::validate_literal_positive(&size, "fontsize", "size", token)?;
-                    ops.push(DrawOp::SetFontSize { size });
-                }
-                TokenKind::Word(word) if word == "textbox" => {
-                    Self::require_stack(&stack, "textbox", 5, token)?;
-                    let height = Self::pop_number(&mut stack, "textbox", token)?;
-                    let width = Self::pop_number(&mut stack, "textbox", token)?;
-                    let y = Self::pop_number(&mut stack, "textbox", token)?;
-                    let x = Self::pop_number(&mut stack, "textbox", token)?;
-                    let text = Self::pop_string(&mut stack, "textbox", token)?;
-
-                    Self::validate_literal_positive(&width, "textbox", "width", token)?;
-                    Self::validate_literal_positive(&height, "textbox", "height", token)?;
-
-                    ops.push(DrawOp::TextBox {
-                        text,
-                        x,
-                        y,
-                        width,
-                        height,
-                    });
-                }
-                TokenKind::Word(word) if word == "rgb" => {
-                    Self::require_stack(&stack, "rgb", 3, token)?;
-                    let b = Self::pop_number(&mut stack, "rgb", token)?;
-                    let g = Self::pop_number(&mut stack, "rgb", token)?;
-                    let r = Self::pop_number(&mut stack, "rgb", token)?;
-
-                    ops.push(DrawOp::SetRgb { r, g, b });
-                }
-                TokenKind::Word(word) if word == "cmyk" => {
-                    Self::require_stack(&stack, "cmyk", 4, token)?;
-                    let k = Self::pop_number(&mut stack, "cmyk", token)?;
-                    let y = Self::pop_number(&mut stack, "cmyk", token)?;
-                    let m = Self::pop_number(&mut stack, "cmyk", token)?;
-                    let c = Self::pop_number(&mut stack, "cmyk", token)?;
-
-                    ops.push(DrawOp::SetCmyk { c, m, y, k });
-                }
-                TokenKind::Word(word) if word == "strokewidth" => {
-                    Self::require_stack(&stack, "strokewidth", 1, token)?;
-                    let width = Self::pop_number(&mut stack, "strokewidth", token)?;
-
-                    Self::validate_literal_positive(&width, "strokewidth", "width", token)?;
-
-                    ops.push(DrawOp::SetStrokeWidth { width });
-                }
-                TokenKind::Word(word) if word == "line" => {
-                    if current_path_kind.is_some() {
-                        return Err(ParseError::UnpaintedPath {
-                            line: token.line,
-                            column: token.column,
-                        });
-                    }
-
-                    Self::require_stack(&stack, "line", 4, token)?;
-                    let y2 = Self::pop_number(&mut stack, "line", token)?;
-                    let x2 = Self::pop_number(&mut stack, "line", token)?;
-                    let y1 = Self::pop_number(&mut stack, "line", token)?;
-                    let x1 = Self::pop_number(&mut stack, "line", token)?;
-
-                    ops.push(DrawOp::LinePath { x1, y1, x2, y2 });
-                    current_path_kind = Some(CurrentPathKind::Line);
-                }
-                TokenKind::Word(word) if word == "rect" => {
-                    if current_path_kind.is_some() {
-                        return Err(ParseError::UnpaintedPath {
-                            line: token.line,
-                            column: token.column,
-                        });
-                    }
-
-                    Self::require_stack(&stack, "rect", 4, token)?;
-                    let height = Self::pop_number(&mut stack, "rect", token)?;
-                    let width = Self::pop_number(&mut stack, "rect", token)?;
-                    let y = Self::pop_number(&mut stack, "rect", token)?;
-                    let x = Self::pop_number(&mut stack, "rect", token)?;
-
-                    Self::validate_literal_positive(&width, "rect", "width", token)?;
-                    Self::validate_literal_positive(&height, "rect", "height", token)?;
-
-                    ops.push(DrawOp::RectPath {
-                        x,
-                        y,
-                        width,
-                        height,
-                    });
-                    current_path_kind = Some(CurrentPathKind::Rect);
-                }
-                TokenKind::Word(word) if word == "stroke" => {
-                    if current_path_kind.is_none() {
-                        return Err(ParseError::NoCurrentPath {
-                            operator: "stroke".to_string(),
-                            line: token.line,
-                            column: token.column,
-                        });
-                    }
-                    ops.push(DrawOp::Stroke);
-                    current_path_kind = None;
-                }
-                TokenKind::Word(word) if word == "fill" => match current_path_kind {
-                    Some(CurrentPathKind::Rect) => {
-                        ops.push(DrawOp::Fill);
-                        current_path_kind = None;
-                    }
-                    Some(CurrentPathKind::Line) => {
-                        return Err(ParseError::CannotFillPath {
-                            path: "line".to_string(),
-                            line: token.line,
-                            column: token.column,
-                        });
-                    }
-                    None => {
-                        return Err(ParseError::NoCurrentPath {
-                            operator: "fill".to_string(),
-                            line: token.line,
-                            column: token.column,
-                        });
-                    }
-                },
-                TokenKind::Word(word) if BarcodeSymbology::from_word(word).is_some() => {
-                    let sym = BarcodeSymbology::from_word(word).unwrap();
-                    stack.push(StackValue::BarcodeSymbology(sym));
-                }
-                TokenKind::Word(word) if word == "barcode" => {
-                    Self::require_stack(&stack, "barcode", 6, token)?;
-                    let height = Self::pop_number(&mut stack, "barcode", token)?;
-                    let width = Self::pop_number(&mut stack, "barcode", token)?;
-                    let y = Self::pop_number(&mut stack, "barcode", token)?;
-                    let x = Self::pop_number(&mut stack, "barcode", token)?;
-                    let symbology = Self::pop_barcode_symbology(&mut stack, "barcode", token)?;
-                    let value = Self::pop_string(&mut stack, "barcode", token)?;
-
-                    Self::validate_literal_positive(&width, "barcode", "width", token)?;
-                    Self::validate_literal_positive(&height, "barcode", "height", token)?;
-
-                    ops.push(DrawOp::Barcode {
-                        value,
-                        symbology,
-                        x,
-                        y,
-                        width,
-                        height,
-                    });
-                }
-                TokenKind::Comment(_) => {}
-                found => {
-                    return Err(ParseError::UnexpectedDrawToken {
-                        found: found.clone(),
-                        line: token.line,
-                        column: token.column,
-                    });
-                }
+            if let Some(op) = self.parse_frame_draw_token(slots, &mut stack, &mut current_path_kind)? {
+                ops.push(op);
             }
         }
 
@@ -978,6 +760,7 @@ impl Parser {
                 column: token.column,
             });
         }
+
         if current_path_kind.is_some() {
             let token = self.peek();
             return Err(ParseError::UnpaintedPath {
@@ -987,7 +770,317 @@ impl Parser {
         }
 
         self.expect_word("end")?;
-        Ok(ops)
+
+        Ok(FrameDrawBlock { index, ops })
+    }
+
+    fn parse_frame_draw_token(
+        &mut self,
+        slots: &HashMap<String, SlotType>,
+        stack: &mut Vec<StackValue>,
+        current_path_kind: &mut Option<CurrentPathKind>,
+    ) -> Result<Option<DrawOp>, ParseError> {
+        let token = self.advance().clone();
+
+        match &token.kind {
+            TokenKind::Number(value) => {
+                stack.push(StackValue::Number(NumberValue::Literal(*value)));
+                Ok(None)
+            }
+            TokenKind::String(value) => {
+                stack.push(StackValue::Text(TextValue::Literal(value.clone())));
+                Ok(None)
+            }
+            TokenKind::Slot(slot_name) => {
+                let Some(slot_ty) = slots.get(slot_name) else {
+                    return Err(ParseError::UnknownSlot {
+                        name: slot_name.clone(),
+                        line: token.line,
+                        column: token.column,
+                    });
+                };
+
+                match slot_ty {
+                    SlotType::String => {
+                        stack.push(StackValue::Text(TextValue::Slot(slot_name.clone())));
+                    }
+                    SlotType::Int | SlotType::Decimal => {
+                        stack.push(StackValue::Number(NumberValue::Slot(slot_name.clone())));
+                    }
+                }
+
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "concat" => {
+                Self::require_stack(stack, "concat", 1, &token)?;
+                let count_value = Self::pop_number(stack, "concat", &token)?;
+                let count = match count_value {
+                    NumberValue::Literal(n) if n.is_finite() && n >= 0.0 && n.fract() == 0.0 => {
+                        n as usize
+                    }
+                    NumberValue::Literal(n) => {
+                        return Err(ParseError::InvalidNumberOperand {
+                            operator: "concat".to_string(),
+                            operand: ">= 0.0".to_string(),
+                            value: n,
+                            expected: "non-negative integer".to_string(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+                    NumberValue::Slot(name) => {
+                        return Err(ParseError::MustBeLiteralNumber {
+                            slot: name.to_string(),
+                            line: token.line,
+                            column: token.column,
+                        });
+                    }
+                };
+
+                Self::require_stack(stack, "concat", count, &token)?;
+                let mut values: Vec<TextValue> = Vec::new();
+                for _ in 0..count {
+                    let value = Self::pop_string_or_number(stack, "concat", &token)?;
+                    values.push(value);
+                }
+                values.reverse();
+                stack.push(StackValue::Text(TextValue::Concat(values)));
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "uppercase" => {
+                Self::require_stack(stack, "uppercase", 1, &token)?;
+                let value = Self::pop_string(stack, "uppercase", &token)?;
+                stack.push(StackValue::Text(TextValue::UpperCase(Box::new(value))));
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "lowercase" => {
+                Self::require_stack(stack, "lowercase", 1, &token)?;
+                let value = Self::pop_string(stack, "lowercase", &token)?;
+                stack.push(StackValue::Text(TextValue::LowerCase(Box::new(value))));
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "capitalize" => {
+                Self::require_stack(stack, "capitalize", 1, &token)?;
+                let value = Self::pop_string(stack, "capitalize", &token)?;
+                stack.push(StackValue::Text(TextValue::Capitalize(Box::new(value))));
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "titlecase" => {
+                Self::require_stack(stack, "title", 1, &token)?;
+                let value = Self::pop_string(stack, "title", &token)?;
+                stack.push(StackValue::Text(TextValue::TitleCase(Box::new(value))));
+                Ok(None)
+            }
+            TokenKind::Word(word) if ImageFit::from_word(word).is_some() => {
+                let fit = ImageFit::from_word(word).unwrap();
+                self.expect_word("imagefit")?;
+                Ok(Some(DrawOp::SetImageFit { fit }))
+            }
+            TokenKind::Word(word) if word == "image" => {
+                Self::require_stack(stack, "image", 5, &token)?;
+                let height = Self::pop_number(stack, "image", &token)?;
+                let width = Self::pop_number(stack, "image", &token)?;
+                let y = Self::pop_number(stack, "image", &token)?;
+                let x = Self::pop_number(stack, "image", &token)?;
+                let asset = Self::pop_string(stack, "image", &token)?;
+
+                Self::validate_literal_positive(&width, "image", "width", &token)?;
+                Self::validate_literal_positive(&height, "image", "height", &token)?;
+
+                Ok(Some(DrawOp::Image {
+                    asset,
+                    x,
+                    y,
+                    width,
+                    height,
+                }))
+            }
+            TokenKind::Word(word) if word == "font" => {
+                Self::require_stack(stack, "font", 1, &token)?;
+                let font = Self::pop_string(stack, "font", &token)?;
+                Ok(Some(DrawOp::SetFontFamily { font }))
+            }
+            TokenKind::Word(word) if TextAlign::from_word(word).is_some() => {
+                let align = TextAlign::from_word(word).unwrap();
+                self.expect_word("align")?;
+                Ok(Some(DrawOp::SetTextAlignment { align }))
+            }
+            TokenKind::Word(word) if VerticalAlign::from_word(word).is_some() => {
+                let align = VerticalAlign::from_word(word).unwrap();
+                self.expect_word("valign")?;
+                Ok(Some(DrawOp::SetVerticalAlignment { align }))
+            }
+            TokenKind::Word(word) if LineBreakMode::from_word(word).is_some() => {
+                let line_break = LineBreakMode::from_word(word).unwrap();
+                self.expect_word("wrap")?;
+                Ok(Some(DrawOp::SetLineBreakMode { line_break }))
+            }
+            TokenKind::Word(word) if TextFit::from_word(word).is_some() => {
+                let fit = TextFit::from_word(word).unwrap();
+                self.expect_word("textfit")?;
+                Ok(Some(DrawOp::SetTextFit { fit }))
+            }
+            TokenKind::Word(word) if word == "textfitmin" => {
+                Self::require_stack(stack, "textfitmin", 1, &token)?;
+                let min = Self::pop_number(stack, "textfitmin", &token)?;
+                Self::validate_literal_positive(&min, "textfitmin", "size", &token)?;
+                Ok(Some(DrawOp::SetTextFitMinSize { min }))
+            }
+            TokenKind::Word(word) if word == "textfitmax" => {
+                Self::require_stack(stack, "textfitmax", 1, &token)?;
+                let max = Self::pop_number(stack, "textfitmax", &token)?;
+                Self::validate_literal_positive(&max, "textfitmax", "size", &token)?;
+                Ok(Some(DrawOp::SetTextFitMaxSize { max }))
+            }
+            TokenKind::Word(word) if word == "fontsize" => {
+                Self::require_stack(stack, "fontsize", 1, &token)?;
+                let size = Self::pop_number(stack, "fontsize", &token)?;
+                Self::validate_literal_positive(&size, "fontsize", "size", &token)?;
+                Ok(Some(DrawOp::SetFontSize { size }))
+            }
+            TokenKind::Word(word) if word == "textbox" => {
+                Self::require_stack(stack, "textbox", 5, &token)?;
+                let height = Self::pop_number(stack, "textbox", &token)?;
+                let width = Self::pop_number(stack, "textbox", &token)?;
+                let y = Self::pop_number(stack, "textbox", &token)?;
+                let x = Self::pop_number(stack, "textbox", &token)?;
+                let text = Self::pop_string(stack, "textbox", &token)?;
+
+                Self::validate_literal_positive(&width, "textbox", "width", &token)?;
+                Self::validate_literal_positive(&height, "textbox", "height", &token)?;
+
+                Ok(Some(DrawOp::TextBox {
+                    text,
+                    x,
+                    y,
+                    width,
+                    height,
+                }))
+            }
+            TokenKind::Word(word) if word == "rgb" => {
+                Self::require_stack(stack, "rgb", 3, &token)?;
+                let b = Self::pop_number(stack, "rgb", &token)?;
+                let g = Self::pop_number(stack, "rgb", &token)?;
+                let r = Self::pop_number(stack, "rgb", &token)?;
+                Ok(Some(DrawOp::SetRgb { r, g, b }))
+            }
+            TokenKind::Word(word) if word == "cmyk" => {
+                Self::require_stack(stack, "cmyk", 4, &token)?;
+                let k = Self::pop_number(stack, "cmyk", &token)?;
+                let y = Self::pop_number(stack, "cmyk", &token)?;
+                let m = Self::pop_number(stack, "cmyk", &token)?;
+                let c = Self::pop_number(stack, "cmyk", &token)?;
+                Ok(Some(DrawOp::SetCmyk { c, m, y, k }))
+            }
+            TokenKind::Word(word) if word == "strokewidth" => {
+                Self::require_stack(stack, "strokewidth", 1, &token)?;
+                let width = Self::pop_number(stack, "strokewidth", &token)?;
+                Self::validate_literal_positive(&width, "strokewidth", "width", &token)?;
+                Ok(Some(DrawOp::SetStrokeWidth { width }))
+            }
+            TokenKind::Word(word) if word == "line" => {
+                if current_path_kind.is_some() {
+                    return Err(ParseError::UnpaintedPath {
+                        line: token.line,
+                        column: token.column,
+                    });
+                }
+
+                Self::require_stack(stack, "line", 4, &token)?;
+                let y2 = Self::pop_number(stack, "line", &token)?;
+                let x2 = Self::pop_number(stack, "line", &token)?;
+                let y1 = Self::pop_number(stack, "line", &token)?;
+                let x1 = Self::pop_number(stack, "line", &token)?;
+
+                *current_path_kind = Some(CurrentPathKind::Line);
+                Ok(Some(DrawOp::LinePath { x1, y1, x2, y2 }))
+            }
+            TokenKind::Word(word) if word == "rect" => {
+                if current_path_kind.is_some() {
+                    return Err(ParseError::UnpaintedPath {
+                        line: token.line,
+                        column: token.column,
+                    });
+                }
+
+                Self::require_stack(stack, "rect", 4, &token)?;
+                let height = Self::pop_number(stack, "rect", &token)?;
+                let width = Self::pop_number(stack, "rect", &token)?;
+                let y = Self::pop_number(stack, "rect", &token)?;
+                let x = Self::pop_number(stack, "rect", &token)?;
+
+                Self::validate_literal_positive(&width, "rect", "width", &token)?;
+                Self::validate_literal_positive(&height, "rect", "height", &token)?;
+
+                *current_path_kind = Some(CurrentPathKind::Rect);
+                Ok(Some(DrawOp::RectPath {
+                    x,
+                    y,
+                    width,
+                    height,
+                }))
+            }
+            TokenKind::Word(word) if word == "stroke" => {
+                if current_path_kind.is_none() {
+                    return Err(ParseError::NoCurrentPath {
+                        operator: "stroke".to_string(),
+                        line: token.line,
+                        column: token.column,
+                    });
+                }
+
+                *current_path_kind = None;
+                Ok(Some(DrawOp::Stroke))
+            }
+            TokenKind::Word(word) if word == "fill" => match current_path_kind {
+                Some(CurrentPathKind::Rect) => {
+                    *current_path_kind = None;
+                    Ok(Some(DrawOp::Fill))
+                }
+                Some(CurrentPathKind::Line) => Err(ParseError::CannotFillPath {
+                    path: "line".to_string(),
+                    line: token.line,
+                    column: token.column,
+                }),
+                None => Err(ParseError::NoCurrentPath {
+                    operator: "fill".to_string(),
+                    line: token.line,
+                    column: token.column,
+                }),
+            },
+            TokenKind::Word(word) if BarcodeSymbology::from_word(word).is_some() => {
+                let symbology = BarcodeSymbology::from_word(word).unwrap();
+                stack.push(StackValue::BarcodeSymbology(symbology));
+                Ok(None)
+            }
+            TokenKind::Word(word) if word == "barcode" => {
+                Self::require_stack(stack, "barcode", 6, &token)?;
+                let height = Self::pop_number(stack, "barcode", &token)?;
+                let width = Self::pop_number(stack, "barcode", &token)?;
+                let y = Self::pop_number(stack, "barcode", &token)?;
+                let x = Self::pop_number(stack, "barcode", &token)?;
+                let symbology = Self::pop_barcode_symbology(stack, "barcode", &token)?;
+                let value = Self::pop_string(stack, "barcode", &token)?;
+
+                Self::validate_literal_positive(&width, "barcode", "width", &token)?;
+                Self::validate_literal_positive(&height, "barcode", "height", &token)?;
+
+                Ok(Some(DrawOp::Barcode {
+                    value,
+                    symbology,
+                    x,
+                    y,
+                    width,
+                    height,
+                }))
+            }
+            TokenKind::Comment(_) => Ok(None),
+            found => Err(ParseError::UnexpectedDrawToken {
+                found: found.clone(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
     }
 
     fn parse_optional_fonts(&mut self) -> Result<Vec<FontDecl>, ParseError> {
@@ -1061,6 +1154,56 @@ impl Parser {
 
         self.expect_word("end")?;
         Ok(fonts)
+    }
+
+    fn parse_frames(&mut self) -> Result<Vec<FrameDecl>, ParseError> {
+        self.expect_word("frames")?;
+        self.expect_word("begin")?;
+
+        let mut frames: Vec<FrameDecl> = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "frame block".to_string(),
+                });
+            }
+            frames.push(self.parse_frame_decl()?);
+        }
+        self.expect_word("end")?;
+        Ok(frames)
+    }
+
+    fn parse_frame_decl(&mut self) -> Result<FrameDecl, ParseError> {
+        let idx_token = self.advance().clone();
+        let index = match idx_token.kind {
+            TokenKind::Number(n)
+                if n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 =>
+            {
+                n as u32
+            }
+            found => {
+                return Err(ParseError::UnexpectedFrameToken {
+                    found: found.clone(),
+                    line: idx_token.line,
+                    column: idx_token.column,
+                });
+            }
+        };
+
+        let id_token = self.advance().clone();
+        let id = match id_token.kind {
+            TokenKind::Word(id) => id,
+            found => {
+                return Err(ParseError::UnexpectedFrameToken {
+                    found: found.clone(),
+                    line: id_token.line,
+                    column: id_token.column,
+                });
+            }
+        };
+
+        Ok(FrameDecl { index, id })
     }
 
     fn parse_optional_slots(&mut self) -> Result<Vec<SlotDecl>, ParseError> {

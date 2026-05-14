@@ -2,10 +2,24 @@ use std::{collections::HashMap, path::PathBuf};
 
 use super::*;
 use crate::{
-    parser::{DrawOp, NumberValue},
+    parser::{DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page},
     resources::RegisteredAsset,
 };
 use serde_json::Value;
+
+fn default_frames() -> Vec<FrameDecl> {
+    vec![FrameDecl {
+        index: 1,
+        id: "FRAME_1".to_string(),
+    }]
+}
+
+fn as_draw_frames(draw_ops: &[DrawOp]) -> Vec<FrameDrawBlock> {
+    vec![FrameDrawBlock {
+        index: 1,
+        ops: draw_ops.to_vec(),
+    }]
+}
 
 fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Result<(), RenderError> {
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 256, 256)?;
@@ -15,8 +29,45 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
 
-    execute_draw_ops(&ctx, draw_ops, data, &render_context, &mut cache)
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        data,
+        &render_context,
+        &mut cache,
+    )
+    .map(|_| ())
+}
+
+fn render_pdf_for_test(
+    page: &Page,
+    draw_ops: &[DrawOp],
+    output_path: &std::path::Path,
+    data: Option<&Value>,
+    context: &RenderContext,
+) -> Result<(), RenderError> {
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(draw_ops);
+    render_pdf(page, &frames, &draw_frames, output_path, data, context).map(|_| ())
+}
+
+fn render_pdf_with_cache_for_test(
+    page: &Page,
+    draw_ops: &[DrawOp],
+    output_path: &std::path::Path,
+    data: Option<&Value>,
+    context: &RenderContext,
+    cache: &mut RenderCache,
+) -> Result<(), RenderError> {
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(draw_ops);
+    render_pdf_with_cache(page, &frames, &draw_frames, output_path, data, context, cache)
+        .map(|_| ())
 }
 
 #[test]
@@ -154,7 +205,7 @@ fn renders_basic_pdf() {
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
-    render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
     let metadata = fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
@@ -379,7 +430,7 @@ fn renders_static_text_pdf() {
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
-    render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
     let metadata = std::fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
@@ -638,7 +689,8 @@ fn returns_cairo_error_for_invalid_output_path() {
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
 
-    let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+    let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
+        .unwrap_err();
 
     assert!(matches!(err, RenderError::Cairo(_)));
 }
@@ -680,7 +732,8 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
-    let err = render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+    let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
+        .unwrap_err();
     assert!(matches!(
         err,
         RenderError::MissingAssetAlias { alias } if alias == "missing_logo"
@@ -730,7 +783,7 @@ fn renders_pdf_with_registered_image_asset() {
         height: NumberValue::Literal(80.0),
     }];
     let output_path = std::env::temp_dir().join("marmot_image_render_test.pdf");
-    render_pdf(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
     let metadata = fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
     let _ = fs::remove_file(output_path);
@@ -792,9 +845,9 @@ fn reuses_scaled_surface_for_same_asset_geometry_and_fit() {
     let output_a = dir.path().join("a.pdf");
     let output_b = dir.path().join("b.pdf");
 
-    render_pdf_with_cache(&page, &draw_ops, &output_a, None, &render_context, &mut cache)
+    render_pdf_with_cache_for_test(&page, &draw_ops, &output_a, None, &render_context, &mut cache)
         .unwrap();
-    render_pdf_with_cache(&page, &draw_ops, &output_b, None, &render_context, &mut cache)
+    render_pdf_with_cache_for_test(&page, &draw_ops, &output_b, None, &render_context, &mut cache)
         .unwrap();
 
     assert_eq!(cache.image_surfaces.len(), 1);
@@ -870,9 +923,9 @@ fn creates_distinct_scaled_surfaces_for_distinct_geometry() {
         },
     ];
 
-    render_pdf_with_cache(&page, &draw_ops_a, &output_a, None, &render_context, &mut cache)
+    render_pdf_with_cache_for_test(&page, &draw_ops_a, &output_a, None, &render_context, &mut cache)
         .unwrap();
-    render_pdf_with_cache(&page, &draw_ops_b, &output_b, None, &render_context, &mut cache)
+    render_pdf_with_cache_for_test(&page, &draw_ops_b, &output_b, None, &render_context, &mut cache)
         .unwrap();
 
     assert_eq!(cache.image_surfaces.len(), 1);
@@ -926,7 +979,7 @@ fn errors_when_registered_image_geometry_is_invalid() {
     }];
 
     let output = dir.path().join("invalid-geom.pdf");
-    let err = render_pdf(&page, &draw_ops, &output, None, &render_context).unwrap_err();
+    let err = render_pdf_for_test(&page, &draw_ops, &output, None, &render_context).unwrap_err();
     assert!(matches!(
         err,
         RenderError::InvalidImageGeometry { width, height, .. }
@@ -1588,7 +1641,11 @@ fn errors_when_image_geometry_is_invalid() {
         fonts: HashMap::new(),
         assets,
     };
-    let err = execute_draw_ops(&ctx, &draw_ops, None, &context, &mut cache).unwrap_err();
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(&draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
+    let err = execute_draw(&ctx, &draw_frames, &frame_state, None, &context, &mut cache)
+        .unwrap_err();
     assert!(matches!(
         err,
         RenderError::InvalidImageGeometry { width, height, .. }

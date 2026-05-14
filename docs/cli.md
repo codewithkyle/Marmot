@@ -89,11 +89,13 @@ Behavior:
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
 - Renders to PDF at `--output`.
+- Prints non-fatal render warnings to stderr (for example empty frame values).
 - With `--timings`, prints elapsed time for `prep`, `render`, and `total`.
 
 Notes:
 
 - If template uses slot values in `draw`, rendering without `[data]` fails.
+- Template `frames begin ... end` and framed `draw` sections are required.
 - Current renderer output format is PDF.
 - `--timings` is intended for local profiling and benchmarking runs.
 
@@ -149,6 +151,7 @@ Behavior:
 - Ignores blank lines.
 - Uses a worker pool to render records in parallel.
 - Produces one PDF per successful record.
+- Prints per-record non-fatal render warnings to stderr.
 - Prints `success`, `failed`, and `skipped` counts at completion.
 
 Batch timing output (`--timings`) includes:
