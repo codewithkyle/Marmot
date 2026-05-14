@@ -430,9 +430,10 @@ mod test {
                 height: 10.0,
             },
             slots: vec![],
-            draw: vec![],
             fonts: vec![],
             assets: vec![],
+            frames: vec![],
+            draw_frames: vec![],
         }
     }
 

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::parser::{AssetType, BarcodeSymbology, DrawOp, NumberValue, Page, TextValue};
+use crate::parser::{AssetType, BarcodeSymbology, DrawOp, FrameDrawBlock, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
 use barcoders::sym::{
     code39::Code39,
@@ -1199,9 +1199,9 @@ fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont
     }
 }
 
-fn execute_draw_ops(
+fn execute_draw(
     ctx: &Context,
-    draw_ops: &[DrawOp],
+    draw_frames: &[FrameDrawBlock],
     data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
@@ -1210,201 +1210,203 @@ fn execute_draw_ops(
     let mut pending_path: Option<PendingPath> = None;
     let layout = pangocairo::functions::create_layout(ctx);
 
-    for op in draw_ops {
-        match op {
-            DrawOp::Barcode {
-                value,
-                symbology,
-                x,
-                y,
-                width,
-                height,
-            } => {
-                let value = eval_text(value, data)?;
-                let x = eval_number(x, data)?;
-                let y = eval_number(y, data)?;
-                let width = eval_number(width, data)?;
-                let height = eval_number(height, data)?;
+    for frame in draw_frames {
+        for op in &frame.ops {
+            match op {
+                DrawOp::Barcode {
+                    value,
+                    symbology,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    let value = eval_text(value, data)?;
+                    let x = eval_number(x, data)?;
+                    let y = eval_number(y, data)?;
+                    let width = eval_number(width, data)?;
+                    let height = eval_number(height, data)?;
 
-                match symbology {
-                    BarcodeSymbology::Code39 => {
-                        render_code39(ctx, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::Code128A => {
-                        render_code128(ctx, symbology, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::Code128B => {
-                        render_code128(ctx, symbology, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::Code128C => {
-                        render_code128(ctx, symbology, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::UPCA => {
-                        render_upca(ctx, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::EAN13 => {
-                        render_ean13(ctx, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::EAN8 => {
-                        render_ean8(ctx, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::QR => {
-                        render_qr(ctx, &value, x, y, width, height)?;
-                    }
-                    BarcodeSymbology::DataMatrix => {
-                        render_datamatrix(ctx, &value, x, y, width, height)?;
+                    match symbology {
+                        BarcodeSymbology::Code39 => {
+                            render_code39(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::Code128A => {
+                            render_code128(ctx, symbology, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::Code128B => {
+                            render_code128(ctx, symbology, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::Code128C => {
+                            render_code128(ctx, symbology, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::UPCA => {
+                            render_upca(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::EAN13 => {
+                            render_ean13(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::EAN8 => {
+                            render_ean8(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::QR => {
+                            render_qr(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::DataMatrix => {
+                            render_datamatrix(ctx, &value, x, y, width, height)?;
+                        }
                     }
                 }
-            }
-            DrawOp::SetImageFit { fit } => {
-                state.image_fit = *fit;
-            }
-            DrawOp::SetFontFamily { font } => {
-                let requested = eval_text(font, data)?;
-                state.font = resolve_current_font(context, &requested);
-            }
-            DrawOp::SetTextFitMaxSize { max } => {
-                state.text_fit_max_size = eval_number(max, data)?;
-            }
-            DrawOp::SetTextFitMinSize { min } => {
-                state.text_fit_min_size = eval_number(min, data)?;
-            }
-            DrawOp::SetTextFit { fit } => {
-                state.text_fit = *fit;
-            }
-            DrawOp::SetLineBreakMode { line_break } => {
-                state.line_break = *line_break;
-            }
-            DrawOp::SetVerticalAlignment { align } => {
-                state.vertical_align = *align;
-            }
-            DrawOp::SetTextAlignment { align } => {
-                state.text_align = *align;
-            }
-            DrawOp::SetRgb { r, g, b } => {
-                ctx.set_source_rgb(
-                    eval_number(r, data)?.clamp(0.0, 1.0),
-                    eval_number(g, data)?.clamp(0.0, 1.0),
-                    eval_number(b, data)?.clamp(0.0, 1.0),
-                );
-            }
-            DrawOp::SetCmyk { c, m, y, k } => {
-                let c_actual = eval_number(c, data)?;
-                let m_actual = eval_number(m, data)?;
-                let y_actual = eval_number(y, data)?;
-                let k_actual = eval_number(k, data)?;
+                DrawOp::SetImageFit { fit } => {
+                    state.image_fit = *fit;
+                }
+                DrawOp::SetFontFamily { font } => {
+                    let requested = eval_text(font, data)?;
+                    state.font = resolve_current_font(context, &requested);
+                }
+                DrawOp::SetTextFitMaxSize { max } => {
+                    state.text_fit_max_size = eval_number(max, data)?;
+                }
+                DrawOp::SetTextFitMinSize { min } => {
+                    state.text_fit_min_size = eval_number(min, data)?;
+                }
+                DrawOp::SetTextFit { fit } => {
+                    state.text_fit = *fit;
+                }
+                DrawOp::SetLineBreakMode { line_break } => {
+                    state.line_break = *line_break;
+                }
+                DrawOp::SetVerticalAlignment { align } => {
+                    state.vertical_align = *align;
+                }
+                DrawOp::SetTextAlignment { align } => {
+                    state.text_align = *align;
+                }
+                DrawOp::SetRgb { r, g, b } => {
+                    ctx.set_source_rgb(
+                        eval_number(r, data)?.clamp(0.0, 1.0),
+                        eval_number(g, data)?.clamp(0.0, 1.0),
+                        eval_number(b, data)?.clamp(0.0, 1.0),
+                    );
+                }
+                DrawOp::SetCmyk { c, m, y, k } => {
+                    let c_actual = eval_number(c, data)?;
+                    let m_actual = eval_number(m, data)?;
+                    let y_actual = eval_number(y, data)?;
+                    let k_actual = eval_number(k, data)?;
 
-                let r = (1.0 - c_actual) * (1.0 - k_actual);
-                let g = (1.0 - m_actual) * (1.0 - k_actual);
-                let b = (1.0 - y_actual) * (1.0 - k_actual);
+                    let r = (1.0 - c_actual) * (1.0 - k_actual);
+                    let g = (1.0 - m_actual) * (1.0 - k_actual);
+                    let b = (1.0 - y_actual) * (1.0 - k_actual);
 
-                ctx.set_source_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
-            }
-            DrawOp::SetStrokeWidth { width } => {
-                ctx.set_line_width(eval_number(width, data)?);
-            }
-            DrawOp::SetFontSize { size } => {
-                state.font_size = eval_number(size, data)?;
-            }
-            DrawOp::LinePath { x1, y1, x2, y2 } => {
-                pending_path = Some(PendingPath::Line {
-                    x1: eval_number(x1, data)?,
-                    y1: eval_number(y1, data)?,
-                    x2: eval_number(x2, data)?,
-                    y2: eval_number(y2, data)?,
-                });
-            }
-            DrawOp::RectPath {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                pending_path = Some(PendingPath::Rect {
-                    x: eval_number(x, data)?,
-                    y: eval_number(y, data)?,
-                    width: eval_number(width, data)?,
-                    height: eval_number(height, data)?,
-                });
-            }
-            DrawOp::Stroke => {
-                let path = pending_path
-                    .take()
-                    .expect("parser should prevent stroke without a current path");
-                match path {
-                    PendingPath::Line { x1, y1, x2, y2 } => {
-                        ctx.move_to(x1, y1);
-                        ctx.line_to(x2, y2);
-                        ctx.stroke()?;
-                    }
-                    PendingPath::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    } => {
-                        ctx.rectangle(x, y, width, height);
-                        ctx.stroke()?;
+                    ctx.set_source_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
+                }
+                DrawOp::SetStrokeWidth { width } => {
+                    ctx.set_line_width(eval_number(width, data)?);
+                }
+                DrawOp::SetFontSize { size } => {
+                    state.font_size = eval_number(size, data)?;
+                }
+                DrawOp::LinePath { x1, y1, x2, y2 } => {
+                    pending_path = Some(PendingPath::Line {
+                        x1: eval_number(x1, data)?,
+                        y1: eval_number(y1, data)?,
+                        x2: eval_number(x2, data)?,
+                        y2: eval_number(y2, data)?,
+                    });
+                }
+                DrawOp::RectPath {
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    pending_path = Some(PendingPath::Rect {
+                        x: eval_number(x, data)?,
+                        y: eval_number(y, data)?,
+                        width: eval_number(width, data)?,
+                        height: eval_number(height, data)?,
+                    });
+                }
+                DrawOp::Stroke => {
+                    let path = pending_path
+                        .take()
+                        .expect("parser should prevent stroke without a current path");
+                    match path {
+                        PendingPath::Line { x1, y1, x2, y2 } => {
+                            ctx.move_to(x1, y1);
+                            ctx.line_to(x2, y2);
+                            ctx.stroke()?;
+                        }
+                        PendingPath::Rect {
+                            x,
+                            y,
+                            width,
+                            height,
+                        } => {
+                            ctx.rectangle(x, y, width, height);
+                            ctx.stroke()?;
+                        }
                     }
                 }
-            }
-            DrawOp::Fill => {
-                let path = pending_path
-                    .take()
-                    .expect("parser should prevent fill without a current path");
-                match path {
-                    PendingPath::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    } => {
-                        ctx.rectangle(x, y, width, height);
-                        ctx.fill()?;
-                    }
-                    PendingPath::Line { .. } => {
-                        panic!("parser should prevent filling a line");
+                DrawOp::Fill => {
+                    let path = pending_path
+                        .take()
+                        .expect("parser should prevent fill without a current path");
+                    match path {
+                        PendingPath::Rect {
+                            x,
+                            y,
+                            width,
+                            height,
+                        } => {
+                            ctx.rectangle(x, y, width, height);
+                            ctx.fill()?;
+                        }
+                        PendingPath::Line { .. } => {
+                            panic!("parser should prevent filling a line");
+                        }
                     }
                 }
-            }
-            DrawOp::Image {
-                asset,
-                x,
-                y,
-                width,
-                height,
-            } => {
-                let asset = eval_text(asset, data)?;
-                render_image(
-                    ctx,
-                    context,
-                    cache,
-                    &asset,
-                    state.image_fit,
-                    eval_number(x, data)?,
-                    eval_number(y, data)?,
-                    eval_number(width, data)?,
-                    eval_number(height, data)?,
-                )?;
-            }
-            DrawOp::TextBox {
-                text,
-                x,
-                y,
-                width,
-                height,
-            } => {
-                let text = eval_text(text, data)?;
-                render_textbox(
-                    &layout,
-                    ctx,
-                    &state,
-                    &text,
-                    eval_number(x, data)?,
-                    eval_number(y, data)?,
-                    eval_number(width, data)?,
-                    eval_number(height, data)?,
-                )?;
+                DrawOp::Image {
+                    asset,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    let asset = eval_text(asset, data)?;
+                    render_image(
+                        ctx,
+                        context,
+                        cache,
+                        &asset,
+                        state.image_fit,
+                        eval_number(x, data)?,
+                        eval_number(y, data)?,
+                        eval_number(width, data)?,
+                        eval_number(height, data)?,
+                    )?;
+                }
+                DrawOp::TextBox {
+                    text,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    let text = eval_text(text, data)?;
+                    render_textbox(
+                        &layout,
+                        ctx,
+                        &state,
+                        &text,
+                        eval_number(x, data)?,
+                        eval_number(y, data)?,
+                        eval_number(width, data)?,
+                        eval_number(height, data)?,
+                    )?;
+                }
             }
         }
     }
@@ -1414,7 +1416,7 @@ fn execute_draw_ops(
 
 pub fn render_pdf_with_cache(
     page: &Page,
-    draw_ops: &[DrawOp],
+    draw_frames: &[FrameDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1423,7 +1425,7 @@ pub fn render_pdf_with_cache(
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
 
-    execute_draw_ops(&ctx, draw_ops, data, context, cache)?;
+    execute_draw(&ctx, draw_frames, data, context, cache)?;
 
     surface.finish();
 
@@ -1432,11 +1434,11 @@ pub fn render_pdf_with_cache(
 
 pub fn render_pdf(
     page: &Page,
-    draw_ops: &[DrawOp],
+    draw_frames: &[FrameDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
     let mut cache = RenderCache::default();
-    render_pdf_with_cache(page, draw_ops, output_path, data, context, &mut cache)
+    render_pdf_with_cache(page, draw_frames, output_path, data, context, &mut cache)
 }

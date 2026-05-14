@@ -427,7 +427,7 @@ fn render(args: RenderArgs) -> Result<()> {
 
     render_pdf(
         &template.page,
-        &template.draw,
+        &template.draw_frames,
         &args.output_file,
         data.as_ref(),
         &render_context,
@@ -781,7 +781,7 @@ fn process_batch_line(
 
     match render_pdf_with_cache(
         &template.page,
-        &template.draw,
+        &template.draw_frames,
         &output_path,
         Some(&record),
         &render_context,

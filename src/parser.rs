@@ -27,8 +27,8 @@ struct FrameRuntimeState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameDrawBlock {
-    index: u32,
-    ops: Vec<DrawOp>,
+    pub index: u32,
+    pub ops: Vec<DrawOp>,
 }
 
 impl Default for FrameDrawBlock {
@@ -397,11 +397,9 @@ impl Parser {
         let slots = self.parse_optional_slots()?;
         let fonts = self.parse_optional_fonts()?;
         let assets = self.parse_optional_assets()?;
-        let frames = self.parse_frames()?;
-
         let slot_lookup = Self::build_slot_lookup(&slots);
+        let frames = self.parse_frames()?;
         let frame_lookup = Self::build_frame_lookup(&frames);
-
         let draw_frames = self.parse_draw(&slot_lookup, &frame_lookup)?;
 
         self.expect_eof()?;

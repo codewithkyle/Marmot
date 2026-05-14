@@ -5,7 +5,14 @@ use crate::lexer::Lexer;
 fn parses_header_and_page() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -64,7 +71,14 @@ page
 fn errors_when_extra_tokens_exist() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 extra
 "#;
@@ -79,7 +93,7 @@ extra
         err,
         ParseError::ExpectedEof {
             found: TokenKind::Word("extra".to_string()),
-            line: 5,
+            line: 12,
             column: 1,
         }
     );
@@ -90,7 +104,13 @@ fn parses_template_without_slots() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -112,7 +132,13 @@ slots begin
   product_name string required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -143,7 +169,13 @@ slots begin
   sale_price decimal required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -168,7 +200,13 @@ slots begin
   product_name text required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -197,7 +235,13 @@ slots begin
   price string required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -218,10 +262,16 @@ fn parses_simple_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  1 0 0 rgb
-  2 strokewidth
-  0 0 10 10 line stroke
+  frame 1 begin
+      1 0 0 rgb
+      2 strokewidth
+      0 0 10 10 line stroke
+  end
 end
 "#;
 
@@ -232,7 +282,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::SetRgb {
                 r: NumberValue::Literal(1.0),
@@ -258,8 +308,14 @@ fn errors_when_rgb_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  1 0 rgb
+  frame 1 begin
+      1 0 rgb
+  end
 end
 "#;
 
@@ -275,8 +331,8 @@ end
             operator: "rgb".to_string(),
             expected: 3,
             actual: 2,
-            line: 5,
-            column: 7,
+            line: 10,
+            column: 11,
         }
     );
 }
@@ -286,8 +342,14 @@ fn parses_cmyk_command() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0.1 0.2 0.3 0.4 cmyk
+  frame 1 begin
+      0.1 0.2 0.3 0.4 cmyk
+  end
 end
 "#;
 
@@ -298,7 +360,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::SetCmyk {
             c: NumberValue::Literal(0.1),
             m: NumberValue::Literal(0.2),
@@ -313,8 +375,14 @@ fn errors_when_cmyk_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0.1 0.2 0.3 cmyk
+  frame 1 begin
+      0.1 0.2 0.3 cmyk
+  end
 end
 "#;
 
@@ -330,8 +398,8 @@ end
             operator: "cmyk".to_string(),
             expected: 4,
             actual: 3,
-            line: 5,
-            column: 15,
+            line: 10,
+            column: 19,
         }
     );
 }
@@ -341,8 +409,14 @@ fn errors_when_line_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0 0 10 line
+  frame 1 begin
+      0 0 10 line
+  end
 end
 "#;
 
@@ -358,8 +432,8 @@ end
             operator: "line".to_string(),
             expected: 4,
             actual: 3,
-            line: 5,
-            column: 10,
+            line: 10,
+            column: 14,
         }
     );
 }
@@ -369,8 +443,14 @@ fn parses_static_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (Hello world) 0 0 100 100 textbox
+  frame 1 begin
+      (Hello world) 0 0 100 100 textbox
+  end
 end
 "#;
 
@@ -381,7 +461,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Literal("Hello world".to_string()),
             x: NumberValue::Literal(0.0),
@@ -397,8 +477,14 @@ fn errors_when_textbox_text_is_missing() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0 0 100 100 textbox
+  frame 1 begin
+      0 0 100 100 textbox
+  end
 end
 "#;
 
@@ -414,8 +500,8 @@ end
             operator: "textbox".to_string(),
             expected: 5,
             actual: 4,
-            line: 5,
-            column: 15,
+            line: 10,
+            column: 19,
         }
     );
 }
@@ -425,8 +511,14 @@ fn errors_when_textbox_text_is_not_string() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  1 0 0 100 100 textbox
+  frame 1 begin
+      1 0 0 100 100 textbox
+  end
 end
 "#;
 
@@ -442,8 +534,8 @@ end
             operator: "textbox".to_string(),
             expected: "string".to_string(),
             found: "number".to_string(),
-            line: 5,
-            column: 17,
+            line: 10,
+            column: 21,
         }
     );
 }
@@ -457,8 +549,14 @@ slots begin
   x decimal
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(x) 0 10 10 rect stroke
+  frame 1 begin
+      $(x) 0 10 10 rect stroke
+  end
 end
 "#;
 
@@ -469,7 +567,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::RectPath {
                 x: NumberValue::Slot("x".to_string()),
@@ -487,8 +585,14 @@ fn parses_rect_fill() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0 0 10 10 rect fill
+  frame 1 begin
+      0 0 10 10 rect fill
+  end
 end
 "#;
 
@@ -499,7 +603,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::RectPath {
                 x: NumberValue::Literal(0.0),
@@ -517,8 +621,14 @@ fn errors_on_unknown_slot_in_draw() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(missing) 0 0 100 100 textbox
+  frame 1 begin
+      $(missing) 0 0 100 100 textbox
+  end
 end
 "#;
 
@@ -532,8 +642,8 @@ end
         err,
         ParseError::UnknownSlot {
             name: "missing".to_string(),
-            line: 5,
-            column: 3,
+            line: 10,
+            column: 7,
         }
     );
 }
@@ -547,8 +657,14 @@ slots begin
   product_name string
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(product_name) 0 0 100 100 textbox
+  frame 1 begin
+      $(product_name) 0 0 100 100 textbox
+  end
 end
 "#;
 
@@ -559,7 +675,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Slot("product_name".to_string()),
             x: NumberValue::Literal(0.0),
@@ -579,8 +695,14 @@ slots begin
   r decimal
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(r) 0 0 rgb
+  frame 1 begin
+      $(r) 0 0 rgb
+  end
 end
 "#;
 
@@ -591,7 +713,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::SetRgb {
             r: NumberValue::Slot("r".to_string()),
             g: NumberValue::Literal(0.0),
@@ -609,8 +731,14 @@ slots begin
   c decimal
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(c) 0 0 0 cmyk
+  frame 1 begin
+      $(c) 0 0 0 cmyk
+  end
 end
 "#;
 
@@ -621,7 +749,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::SetCmyk {
             c: NumberValue::Slot("c".to_string()),
             m: NumberValue::Literal(0.0),
@@ -636,8 +764,14 @@ fn errors_on_zero_rect_width() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0 0 0 10 rect fill
+  frame 1 begin
+      0 0 0 10 rect fill
+  end
 end
 "#;
 
@@ -654,8 +788,8 @@ end
             operand: "width".to_string(),
             value: 0.0,
             expected: "> 0".to_string(),
-            line: 5,
-            column: 12,
+            line: 10,
+            column: 16,
         }
     );
 }
@@ -665,8 +799,14 @@ fn allows_zero_line_coordinates() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  0 0 10 10 line stroke
+  frame 1 begin
+      0 0 10 10 line stroke
+  end
 end
 "#;
 
@@ -677,7 +817,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::LinePath {
                 x1: NumberValue::Literal(0.0),
@@ -700,7 +840,13 @@ fonts begin
   helvetica_bold "fonts/Helvetica-Bold.ttf"
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -734,7 +880,13 @@ fonts begin
   helvetica
 end
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 "#;
 
@@ -807,6 +959,11 @@ end
 fn errors_when_draw_begin_keyword_is_missing() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
+
 draw start
 "#;
 
@@ -821,7 +978,7 @@ draw start
         ParseError::ExpectedWord {
             expected: "begin".to_string(),
             found: TokenKind::Word("start".to_string()),
-            line: 3,
+            line: 8,
             column: 6,
         }
     );
@@ -831,6 +988,11 @@ draw start
 fn errors_on_unexpected_eof_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
+
 draw begin
 "#;
 
@@ -955,8 +1117,14 @@ fn errors_on_unexpected_word_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-banana
+  frame 1 begin
+    banana
+  end
 end
 "#;
 
@@ -970,8 +1138,8 @@ end
         err,
         ParseError::UnexpectedDrawToken {
             found: TokenKind::Word("banana".to_string()),
-            line: 5,
-            column: 1,
+            line: 10,
+            column: 5,
         }
     );
 }
@@ -981,8 +1149,14 @@ fn errors_on_fill_without_current_path() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-fill
+  frame 1 begin
+    fill
+  end
 end
 "#;
 
@@ -996,8 +1170,8 @@ end
         err,
         ParseError::NoCurrentPath {
             operator: "fill".to_string(),
-            line: 5,
-            column: 1,
+            line: 10,
+            column: 5,
         }
     );
 }
@@ -1007,8 +1181,14 @@ fn errors_on_stroke_without_current_path() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-stroke
+  frame 1 begin
+    stroke
+  end
 end
 "#;
 
@@ -1022,8 +1202,8 @@ end
         err,
         ParseError::NoCurrentPath {
             operator: "stroke".to_string(),
-            line: 5,
-            column: 1,
+            line: 10,
+            column: 5,
         }
     );
 }
@@ -1033,8 +1213,14 @@ fn errors_on_filling_line_path() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-0 0 10 10 line fill
+  frame 1 begin
+    0 0 10 10 line fill
+  end
 end
 "#;
 
@@ -1048,8 +1234,8 @@ end
         err,
         ParseError::CannotFillPath {
             path: "line".to_string(),
-            line: 5,
-            column: 16,
+            line: 10,
+            column: 20,
         }
     );
 }
@@ -1059,8 +1245,14 @@ fn errors_on_unpainted_path_before_new_path() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-0 0 10 10 rect 1 1 2 2 rect fill
+  frame 1 begin
+    0 0 10 10 rect 1 1 2 2 rect fill
+  end
 end
 "#;
 
@@ -1073,8 +1265,8 @@ end
     assert_eq!(
         err,
         ParseError::UnpaintedPath {
-            line: 5,
-            column: 24
+            line: 10,
+            column: 28
         }
     );
 }
@@ -1084,8 +1276,14 @@ fn errors_on_unpainted_path_at_end_of_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-0 0 10 10 rect
+  frame 1 begin
+    0 0 10 10 rect
+  end
 end
 "#;
 
@@ -1095,7 +1293,7 @@ end
     let mut parser = Parser::new(tokens);
     let err = parser.parse_template().unwrap_err();
 
-    assert_eq!(err, ParseError::UnpaintedPath { line: 6, column: 1 });
+    assert_eq!(err, ParseError::UnpaintedPath { line: 11, column: 3 });
 }
 
 #[test]
@@ -1103,8 +1301,14 @@ fn errors_on_unused_stack_values_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-1
+  frame 1 begin
+    1
+  end
 end
 "#;
 
@@ -1118,8 +1322,8 @@ end
         err,
         ParseError::UnusedStackValues {
             count: 1,
-            line: 6,
-            column: 1,
+            line: 11,
+            column: 3,
         }
     );
 }
@@ -1129,16 +1333,22 @@ fn parses_draw_text_style_operators() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (Helvetica-Bold) font
-  12 fontsize
-  center align
-  middle valign
-  char wrap
-  fit textfit
-  8 textfitmin
-  40 textfitmax
-  (Hello) 10 20 200 40 textbox
+  frame 1 begin
+      (Helvetica-Bold) font
+      12 fontsize
+      center align
+      middle valign
+      char wrap
+      fit textfit
+      8 textfitmin
+      40 textfitmax
+      (Hello) 10 20 200 40 textbox
+  end
 end
 "#;
 
@@ -1149,7 +1359,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::SetFontFamily {
                 font: TextValue::Literal("Helvetica-Bold".to_string()),
@@ -1188,8 +1398,14 @@ end
 fn parses_image_draw_op() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  "logo" 10 20 30 40 image
+  frame 1 begin
+      "logo" 10 20 30 40 image
+  end
 end
 "#;
     let mut lexer = Lexer::new(source);
@@ -1197,7 +1413,7 @@ end
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Image {
             asset: TextValue::Literal("logo".to_string()),
             x: NumberValue::Literal(10.0),
@@ -1211,8 +1427,14 @@ end
 fn errors_when_image_asset_operand_is_not_string() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  1 10 20 30 40 image
+  frame 1 begin
+      1 10 20 30 40 image
+  end
 end
 "#;
     let mut lexer = Lexer::new(source);
@@ -1234,10 +1456,16 @@ end
 fn parses_imagefit_commands() {
     let source = r#"%!PSL 0.1
 page 100 100
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  contain imagefit
-  cover imagefit
-  stretch imagefit
+  frame 1 begin
+      contain imagefit
+      cover imagefit
+      stretch imagefit
+  end
 end
 "#;
     let mut lexer = Lexer::new(source);
@@ -1245,7 +1473,7 @@ end
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![
             DrawOp::SetImageFit {
                 fit: ImageFit::Contain
@@ -1268,8 +1496,14 @@ slots begin
   B string required
   G string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (BUY ) $(B) ( GET ) $(G) 4 concat 0 0 100 25 textbox
+  frame 1 begin
+      (BUY ) $(B) ( GET ) $(G) 4 concat 0 0 100 25 textbox
+  end
 end
 "#;
     let mut lexer = Lexer::new(source);
@@ -1277,7 +1511,7 @@ end
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Concat(vec![
                 TextValue::Literal("BUY ".to_string()),
@@ -1299,8 +1533,14 @@ page 612 792
 slots begin
   n int required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (A) $(n) concat 0 0 100 25 textbox
+  frame 1 begin
+      (A) $(n) concat 0 0 100 25 textbox
+  end
 end
 "#;
     let mut lexer = Lexer::new(source);
@@ -1318,8 +1558,14 @@ fn parses_uppercase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (hELLo) uppercase 0 0 100 25 textbox
+  frame 1 begin
+      (hELLo) uppercase 0 0 100 25 textbox
+  end
 end
 "#;
 
@@ -1329,7 +1575,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::UpperCase(Box::new(TextValue::Literal("hELLo".to_string()))),
             x: NumberValue::Literal(0.0),
@@ -1345,8 +1591,14 @@ fn parses_lowercase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (hELLo) lowercase 0 0 100 25 textbox
+  frame 1 begin
+      (hELLo) lowercase 0 0 100 25 textbox
+  end
 end
 "#;
 
@@ -1356,7 +1608,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::LowerCase(Box::new(TextValue::Literal("hELLo".to_string()))),
             x: NumberValue::Literal(0.0),
@@ -1372,8 +1624,14 @@ fn parses_titlecase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (hELLo wORLd) titlecase 0 0 100 25 textbox
+  frame 1 begin
+      (hELLo wORLd) titlecase 0 0 100 25 textbox
+  end
 end
 "#;
 
@@ -1383,7 +1641,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::TitleCase(Box::new(TextValue::Literal(
                 "hELLo wORLd".to_string(),
@@ -1401,8 +1659,14 @@ fn parses_capitalize_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  (hELLo wORLd) capitalize 0 0 100 25 textbox
+  frame 1 begin
+      (hELLo wORLd) capitalize 0 0 100 25 textbox
+  end
 end
 "#;
 
@@ -1412,7 +1676,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Capitalize(Box::new(TextValue::Literal(
                 "hELLo wORLd".to_string(),
@@ -1432,8 +1696,14 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(sku) c39 20 20 220 50 barcode
+  frame 1 begin
+      $(sku) c39 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1443,7 +1713,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code39,
@@ -1459,8 +1729,14 @@ end
 fn errors_when_barcode_data_operand_is_not_string() {
     let source = r#"%!PSL 0.1
 page 300 200
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  123 c39 20 20 220 50 barcode
+  frame 1 begin
+      123 c39 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1487,8 +1763,14 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(sku) c128a 20 20 220 50 barcode
+  frame 1 begin
+      $(sku) c128a 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1498,7 +1780,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128A,
@@ -1517,8 +1799,14 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(sku) c128b 20 20 220 50 barcode
+  frame 1 begin
+      $(sku) c128b 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1528,7 +1816,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128B,
@@ -1547,8 +1835,14 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(sku) c128c 20 20 220 50 barcode
+  frame 1 begin
+      $(sku) c128c 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1558,7 +1852,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128C,
@@ -1577,8 +1871,14 @@ page 300 200
 slots begin
   upc string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(upc) upca 20 20 220 50 barcode
+  frame 1 begin
+      $(upc) upca 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1588,7 +1888,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("upc".to_string()),
             symbology: BarcodeSymbology::UPCA,
@@ -1607,8 +1907,14 @@ page 300 200
 slots begin
   ean string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(ean) ean13 20 20 220 50 barcode
+  frame 1 begin
+      $(ean) ean13 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1618,7 +1924,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("ean".to_string()),
             symbology: BarcodeSymbology::EAN13,
@@ -1637,8 +1943,14 @@ page 300 200
 slots begin
   ean string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(ean) ean8 20 20 220 50 barcode
+  frame 1 begin
+      $(ean) ean8 20 20 220 50 barcode
+  end
 end
 "#;
 
@@ -1648,7 +1960,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("ean".to_string()),
             symbology: BarcodeSymbology::EAN8,
@@ -1667,8 +1979,14 @@ page 300 200
 slots begin
   url string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(url) qr 20 20 120 120 barcode
+  frame 1 begin
+      $(url) qr 20 20 120 120 barcode
+  end
 end
 "#;
 
@@ -1678,7 +1996,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("url".to_string()),
             symbology: BarcodeSymbology::QR,
@@ -1697,8 +2015,14 @@ page 300 200
 slots begin
   payload string required
 end
+frames begin
+  1 FRAME_1
+end
+
 draw begin
-  $(payload) datamatrix 20 20 120 120 barcode
+  frame 1 begin
+      $(payload) datamatrix 20 20 120 120 barcode
+  end
 end
 "#;
 
@@ -1708,7 +2032,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw,
+        template.draw_frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("payload".to_string()),
             symbology: BarcodeSymbology::DataMatrix,
