@@ -14,68 +14,87 @@ The initial goal is to render label-sized PDFs from Marmot templates and JSON/JS
 
 ## Documentation
 
-- CLI usage: [`docs/cli.md`](docs/cli.md)
-- PSL language reference: [`docs/psl.md`](docs/psl.md)
-- Print post-processing: [`docs/print-postprocessing.md`](docs/print-postprocessing.md)
-- Docs index: [`docs/index.md`](docs/index.md)
+- [CLI usage](docs/cli.md)
+- [PSL language reference](docs/psl.md)
+- [Future ideas](docs/drafts)
+- [Print post-processing](docs/print-postprocessing.md)
 
 ## PSL (PostScript-Like) Template Language
 
-> Note: the example below includes ideas that are not fully implemented yet.
-> For implementation-accurate syntax and operators, use [`docs/psl.md`](docs/psl.md).
+Example below uses currently supported syntax. For full operator details, see [`docs/psl.md`](docs/psl.md).
 
-```
+```psl
 %!PSL 0.1
 
-page 612 792
+page 432 288
 
 slots begin
+  sku string required
   product_name string required
-  base_price string required
-  sale_price string required
-  buy int required
-  get int required
+  sale_price decimal required
+  regular_price decimal required
+  buy_qty int required
+  get_qty int required
+  promo_url string required
 end
 
 fonts begin
-  helvetica "fonts/Helvetica.ttf"
-  helvetica_bold "fonts/Helvetica-Bold.ttf"
+  kablammo "fonts/Kablammo.ttf"
 end
 
 assets begin
   logo image "assets/logo.png"
-  badge image "assets/logo.png"
 end
 
 draw begin
-  % Background and border
+  % Card background + border
   1 1 1 rgb
-  0 0 612 792 rect fill
+  0 0 432 288 rect fill
 
-  1 0 0 rgb
-  72 72 468 648 rect stroke
+  0 0 0 0.08 cmyk
+  6 strokewidth
+  8 8 416 272 rect stroke
 
-  % Embedded image
-  logo 420 40 120 60 image contain
+  % Header band
+  0.92 0.07 0.16 rgb
+  20 18 392 54 rect fill
 
-  % Product name
-  $(helvetica_bold) font
-  28 fontsize
+  (kablammo) font
+  22 fontsize
   center align
   middle valign
-  0 0 0 1 cmyk
-  $(product_name) 72 100 468 80 textbox
+  1 1 1 rgb
+  $(product_name) titlecase 28 24 376 40 textbox
 
-  % Offer
-  helvetica font
-  64 fontsize
-  (BUY ) $(buy) ( GET ) $(get) 4 concat 72 240 468 100 textbox % output: "BUY 2 GET 1"
+  % Offer callout
+  (kablammo) font
+  32 fontsize
+  center align
+  middle valign
+  0.1 0.1 0.1 rgb
+  (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
 
-  % Price
-  helvetica_bold font
-  96 fontsize
-  0.5 grey
-  $(sale_price) 72 380 468 130 textbox
+  % Price stack
+  (kablammo) font
+  58 fontsize
+  left align
+  top valign
+  0.92 0.07 0.16 rgb
+  ($) $(sale_price) 2 concat 26 136 220 74 textbox
+
+  (kablammo) font
+  16 fontsize
+  left align
+  top valign
+  0.35 0.35 0.35 rgb
+  (Reg $) $(regular_price) 2 concat 30 210 180 20 textbox
+
+  % Brand image + machine-readable codes
+  contain imagefit
+  (logo) 284 86 118 56 image
+
+  $(sku) c128b 26 240 214 28 barcode
+  $(promo_url) qr 336 184 68 68 barcode
 end
 ```
 
