@@ -232,6 +232,32 @@ Rules:
 - Referenced frame index must exist in the `frames` block.
 - Each frame section has its own stack/path validation.
 
+## Frame Blocks in `draw`
+
+`draw` is frame-scoped. This means all rendering operators must appear inside a frame block.
+
+Valid shape:
+
+```psl
+draw begin
+  frame 1 begin
+    1 0 0 rgb
+    10 10 100 40 rect fill
+  end
+end
+```
+
+Invalid shape (operators at top level of `draw`):
+
+```psl
+draw begin
+  1 0 0 rgb
+  10 10 100 40 rect fill
+end
+```
+
+In other words, `draw begin ... end` only contains one or more `frame <u32> begin ... end` blocks, and each frame block contains the actual draw operations.
+
 The draw language is stack-based.
 
 Literals push onto stack:
