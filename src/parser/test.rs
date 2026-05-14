@@ -2043,3 +2043,192 @@ end
         }]
     );
 }
+
+#[test]
+fn parses_multiple_frame_declarations_and_draw_blocks() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1 FRAME_A
+  2 FRAME_B
+end
+
+draw begin
+  frame 1 begin
+    1 0 0 rgb
+  end
+
+  frame 2 begin
+    0 0 20 20 rect fill
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.frames,
+        vec![
+            FrameDecl {
+                index: 1,
+                id: "FRAME_A".to_string(),
+            },
+            FrameDecl {
+                index: 2,
+                id: "FRAME_B".to_string(),
+            }
+        ]
+    );
+
+    assert_eq!(template.draw_frames.len(), 2);
+    assert_eq!(template.draw_frames[0].index, 1);
+    assert_eq!(template.draw_frames[1].index, 2);
+}
+
+#[test]
+fn errors_when_frames_block_is_missing() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+draw begin
+  frame 1 begin
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedWord {
+            expected: "frames".to_string(),
+            found: TokenKind::Word("draw".to_string()),
+            line: 4,
+            column: 1,
+        }
+    );
+}
+
+#[test]
+fn errors_when_frame_index_in_draw_is_not_declared() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1 FRAME_A
+end
+
+draw begin
+  frame 2 begin
+    1 0 0 rgb
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnknownFrameIndex {
+            index: 2,
+            line: 9,
+            column: 9,
+        }
+    );
+}
+
+#[test]
+fn errors_when_frame_draw_block_begin_is_missing() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1 FRAME_A
+end
+
+draw begin
+  frame 1 start
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::ExpectedWord {
+            expected: "begin".to_string(),
+            found: TokenKind::Word("start".to_string()),
+            line: 9,
+            column: 11,
+        }
+    );
+}
+
+#[test]
+fn errors_on_unexpected_eof_in_frame_draw_block() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1 FRAME_A
+end
+
+draw begin
+  frame 1 begin
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedEof {
+            context: "frame draw block".to_string(),
+        }
+    );
+}
+
+#[test]
+fn errors_when_frame_decl_index_is_not_u32_integer() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1.5 FRAME_A
+end
+
+draw begin
+  frame 1 begin
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::UnexpectedFrameToken {
+            found: TokenKind::Number(1.5),
+            line: 5,
+            column: 3,
+        }
+    );
+}
