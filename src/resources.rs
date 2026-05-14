@@ -305,6 +305,8 @@ mod fontconfig {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::package::{MarmotPackage, PackageBuilderOptions, create_package};
+    use crate::parser::{AssetDecl, FontDecl, Page, Template};
     use std::fs;
     use tempfile::tempdir;
     fn write_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -376,5 +378,119 @@ mod test {
                 || msg.contains("decode failed")
                 || msg.contains("probe failed")
         );
+    }
+
+    fn make_minimal_package() -> (tempfile::TempDir, MarmotPackage) {
+        let dir = tempdir().unwrap();
+        let template_file = dir.path().join("template.psl");
+        let package_file = dir.path().join("bundle.marmot");
+
+        fs::write(&template_file, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+
+        create_package(PackageBuilderOptions {
+            template_file,
+            output_file: package_file.clone(),
+            assets: vec![],
+            fonts: vec![],
+        })
+        .unwrap();
+
+        let package = MarmotPackage::open(&package_file).unwrap();
+        (dir, package)
+    }
+
+    fn make_package_with_real_font_and_asset() -> (tempfile::TempDir, MarmotPackage) {
+        let dir = tempdir().unwrap();
+        let template_file = dir.path().join("template.psl");
+        let package_file = dir.path().join("bundle.marmot");
+
+        let root = std::env::current_dir().unwrap();
+        let font = root.join("test/fonts/Kablammo.ttf");
+        let asset = root.join("test/images/sprout-basket.png");
+
+        fs::write(&template_file, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+
+        create_package(PackageBuilderOptions {
+            template_file,
+            output_file: package_file.clone(),
+            assets: vec![asset],
+            fonts: vec![font],
+        })
+        .unwrap();
+
+        let package = MarmotPackage::open(&package_file).unwrap();
+        (dir, package)
+    }
+
+    fn empty_template() -> Template {
+        Template {
+            version: "0.1".to_string(),
+            page: Page {
+                width: 10.0,
+                height: 10.0,
+            },
+            slots: vec![],
+            draw: vec![],
+            fonts: vec![],
+            assets: vec![],
+        }
+    }
+
+    #[test]
+    fn build_render_context_errors_on_duplicate_font_alias() {
+        let (_dir, package) = make_package_with_real_font_and_asset();
+
+        let mut template = empty_template();
+        template.fonts = vec![
+            FontDecl {
+                name: "brand".to_string(),
+                path: "fonts/Kablammo.ttf".to_string(),
+            },
+            FontDecl {
+                name: "brand".to_string(),
+                path: "fonts/B.ttf".to_string(),
+            },
+        ];
+
+        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        assert!(err.contains("duplicate font alias: brand"));
+    }
+
+    #[test]
+    fn build_render_context_errors_on_duplicate_asset_alias() {
+        let (_dir, package) = make_package_with_real_font_and_asset();
+
+        let mut template = empty_template();
+        template.assets = vec![
+            AssetDecl {
+                name: "logo".to_string(),
+                path: "assets/sprout-basket.png".to_string(),
+                ty: AssetType::Image,
+            },
+            AssetDecl {
+                name: "logo".to_string(),
+                path: "assets/B.png".to_string(),
+                ty: AssetType::Image,
+            },
+        ];
+
+        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        assert!(err.contains("duplicate asset alias: logo"));
+    }
+
+    #[test]
+    fn build_render_context_errors_when_asset_path_missing() {
+        let (_dir, package) = make_minimal_package();
+
+        let mut template = empty_template();
+        template.assets = vec![AssetDecl {
+            name: "logo".to_string(),
+            path: "assets/missing.png".to_string(),
+            ty: AssetType::Image,
+        }];
+
+        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        assert!(err.contains("failed to resolve asset alias logo"));
+        assert!(err.contains("assets/missing.png"));
     }
 }

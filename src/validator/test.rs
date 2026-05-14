@@ -96,3 +96,62 @@ fn allows_missing_optional_slot() {
 
     assert_eq!(validate_data(&template, &data), Ok(()));
 }
+
+#[test]
+fn errors_when_data_is_not_object() {
+    let template = template(vec![SlotDecl {
+        name: "product_name".to_string(),
+        ty: SlotType::String,
+        required: true,
+    }]);
+
+    let data = serde_json::json!(["not", "an", "object"]);
+
+    assert_eq!(
+        validate_data(&template, &data),
+        Err(vec![ValidationError::DataMustBeObject])
+    );
+}
+
+#[test]
+fn returns_multiple_errors_for_single_payload() {
+    let template = template(vec![
+        SlotDecl {
+            name: "name".to_string(),
+            ty: SlotType::String,
+            required: true,
+        },
+        SlotDecl {
+            name: "qty".to_string(),
+            ty: SlotType::Int,
+            required: true,
+        },
+        SlotDecl {
+            name: "price".to_string(),
+            ty: SlotType::Decimal,
+            required: true,
+        },
+    ]);
+
+    let data = serde_json::json!({
+        "name": 12,
+        "price": "9.99"
+    });
+
+    let err = validate_data(&template, &data).unwrap_err();
+
+    assert_eq!(err.len(), 3);
+    assert!(err.contains(&ValidationError::WrongType {
+        name: "name".to_string(),
+        expected: SlotType::String,
+        found: "number".to_string(),
+    }));
+    assert!(err.contains(&ValidationError::MissingRequiredSlot {
+        name: "qty".to_string(),
+    }));
+    assert!(err.contains(&ValidationError::WrongType {
+        name: "price".to_string(),
+        expected: SlotType::Decimal,
+        found: "string".to_string(),
+    }));
+}

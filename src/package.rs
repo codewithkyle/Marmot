@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod test;
+
 use anyhow::{Context, Result, bail};
 use std::{
     collections::HashSet,

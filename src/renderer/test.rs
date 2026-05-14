@@ -737,6 +737,204 @@ fn renders_pdf_with_registered_image_asset() {
 }
 
 #[test]
+fn reuses_scaled_surface_for_same_asset_geometry_and_fit() {
+    use crate::parser::{AssetType, Page, TextValue};
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(16, 16, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let byte_len = fs::metadata(&image_path).unwrap().len();
+
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path,
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len,
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 16,
+                height: 16,
+            }),
+        },
+    );
+
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets,
+    };
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+
+    let draw_ops = vec![
+        DrawOp::SetImageFit {
+            fit: ImageFit::Contain,
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("logo".to_string()),
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(10.0),
+            width: NumberValue::Literal(80.0),
+            height: NumberValue::Literal(60.0),
+        },
+    ];
+
+    let mut cache = RenderCache::default();
+    let output_a = dir.path().join("a.pdf");
+    let output_b = dir.path().join("b.pdf");
+
+    render_pdf_with_cache(&page, &draw_ops, &output_a, None, &render_context, &mut cache)
+        .unwrap();
+    render_pdf_with_cache(&page, &draw_ops, &output_b, None, &render_context, &mut cache)
+        .unwrap();
+
+    assert_eq!(cache.image_surfaces.len(), 1);
+    assert_eq!(cache.scaled_image_surfaces.len(), 1);
+}
+
+#[test]
+fn creates_distinct_scaled_surfaces_for_distinct_geometry() {
+    use crate::parser::{AssetType, Page, TextValue};
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(16, 16, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let byte_len = fs::metadata(&image_path).unwrap().len();
+
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path,
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len,
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 16,
+                height: 16,
+            }),
+        },
+    );
+
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets,
+    };
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+
+    let mut cache = RenderCache::default();
+    let output_a = dir.path().join("c.pdf");
+    let output_b = dir.path().join("d.pdf");
+
+    let draw_ops_a = vec![
+        DrawOp::SetImageFit {
+            fit: ImageFit::Stretch,
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("logo".to_string()),
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(10.0),
+            width: NumberValue::Literal(80.0),
+            height: NumberValue::Literal(60.0),
+        },
+    ];
+
+    let draw_ops_b = vec![
+        DrawOp::SetImageFit {
+            fit: ImageFit::Stretch,
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("logo".to_string()),
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(10.0),
+            width: NumberValue::Literal(60.0),
+            height: NumberValue::Literal(80.0),
+        },
+    ];
+
+    render_pdf_with_cache(&page, &draw_ops_a, &output_a, None, &render_context, &mut cache)
+        .unwrap();
+    render_pdf_with_cache(&page, &draw_ops_b, &output_b, None, &render_context, &mut cache)
+        .unwrap();
+
+    assert_eq!(cache.image_surfaces.len(), 1);
+    assert_eq!(cache.scaled_image_surfaces.len(), 2);
+}
+
+#[test]
+fn errors_when_registered_image_geometry_is_invalid() {
+    use crate::parser::{AssetType, Page, TextValue};
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let byte_len = fs::metadata(&image_path).unwrap().len();
+
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path,
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len,
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 2,
+                height: 2,
+            }),
+        },
+    );
+
+    let render_context = RenderContext {
+        fonts: HashMap::<String, RegisteredFont>::new(),
+        assets,
+    };
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("logo".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(10.0),
+    }];
+
+    let output = dir.path().join("invalid-geom.pdf");
+    let err = render_pdf(&page, &draw_ops, &output, None, &render_context).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidImageGeometry { width, height, .. }
+            if width == 0.0 && height == 10.0
+    ));
+}
+
+#[test]
 fn executes_set_imagefit() {
     let draw_ops = vec![DrawOp::SetImageFit {
         fit: ImageFit::Cover,
