@@ -1239,3 +1239,161 @@ fn errors_when_datamatrix_barcode_geometry_is_invalid() {
             if width == 0.0 && height == 140.0
     ));
 }
+
+#[test]
+fn caches_scaled_surface_once_for_repeated_same_geometry() {
+    use crate::parser::AssetType;
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path.clone(),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len: fs::metadata(&image_path).unwrap().len(),
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 8,
+                height: 8,
+            }),
+        },
+    );
+    let context = RenderContext {
+        fonts: HashMap::new(),
+        assets,
+    };
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    render_image(
+        &ctx,
+        &context,
+        &mut cache,
+        "logo",
+        ImageFit::Stretch,
+        10.0,
+        10.0,
+        80.0,
+        40.0,
+    )
+    .unwrap();
+    render_image(
+        &ctx,
+        &context,
+        &mut cache,
+        "logo",
+        ImageFit::Stretch,
+        20.0,
+        20.0,
+        80.0,
+        40.0,
+    )
+    .unwrap();
+    assert_eq!(cache.image_surfaces.len(), 1);
+    assert_eq!(cache.scaled_image_surfaces.len(), 1);
+}
+
+#[test]
+fn scaled_cache_dimensions_match_expected_oversample_size() {
+    use crate::parser::AssetType;
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path.clone(),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len: fs::metadata(&image_path).unwrap().len(),
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 8,
+                height: 8,
+            }),
+        },
+    );
+    let context = RenderContext {
+        fonts: HashMap::new(),
+        assets,
+    };
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    render_image(
+        &ctx,
+        &context,
+        &mut cache,
+        "logo",
+        ImageFit::Stretch,
+        0.0,
+        0.0,
+        80.0,
+        40.0,
+    )
+    .unwrap();
+    let key = cache.scaled_image_surfaces.keys().next().unwrap();
+    let expected_w = (80.0 * IMAGE_CACHE_SCALE).round() as i32;
+    let expected_h = (40.0 * IMAGE_CACHE_SCALE).round() as i32;
+    assert_eq!(key.width_px, expected_w);
+    assert_eq!(key.height_px, expected_h);
+}
+
+#[test]
+fn errors_when_image_geometry_is_invalid() {
+    use crate::parser::{AssetType, TextValue};
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path.clone(),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len: fs::metadata(&image_path).unwrap().len(),
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 2,
+                height: 2,
+            }),
+        },
+    );
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Literal("logo".to_string()),
+        x: NumberValue::Literal(0.0),
+        y: NumberValue::Literal(0.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(10.0),
+    }];
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    let context = RenderContext {
+        fonts: HashMap::new(),
+        assets,
+    };
+    let err = execute_draw_ops(&ctx, &draw_ops, None, &context, &mut cache).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidImageGeometry { width, height, .. }
+            if width == 0.0 && height == 10.0
+    ));
+}
