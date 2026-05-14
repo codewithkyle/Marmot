@@ -43,62 +43,84 @@ fonts begin
 end
 
 assets begin
-  logo image "assets/walmart.png"
+  logo image "assets/sprout-basket.png"
+end
+
+frames begin
+  1 FRAME_BASE
+  2 FRAME_HEADER
+  3 FRAME_OFFER
+  4 FRAME_PRICE
+  5 FRAME_LOGO
+  6 FRAME_CODES
 end
 
 draw begin
-  % Card background + border
-  1 1 1 rgb
-  0 0 432 288 rect fill
+  frame 1 begin
+    % Card background + border
+    1 1 1 rgb
+    0 0 432 288 rect fill
 
-  0 0 0 0.08 cmyk
-  6 strokewidth
-  8 8 416 272 rect stroke
+    0 0 0 0.08 cmyk
+    6 strokewidth
+    8 8 416 272 rect stroke
+  end
 
-  % Header band
-  0.92 0.07 0.16 rgb
-  20 18 392 54 rect fill
+  frame 2 begin
+    % Header band
+    0.92 0.07 0.16 rgb
+    20 18 392 54 rect fill
 
-  (kablammo) font
-  22 fontsize
-  center align
-  middle valign
-  1 1 1 rgb
-  $(product_name) titlecase 28 24 376 40 textbox
+    (kablammo) font
+    22 fontsize
+    center align
+    middle valign
+    1 1 1 rgb
+    $(product_name) titlecase 28 24 376 40 textbox
+  end
 
-  % Offer callout
-  (kablammo) font
-  32 fontsize
-  left align
-  middle valign
-  0.1 0.1 0.1 rgb
-  (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
+  frame 3 begin
+    % Offer callout
+    (kablammo) font
+    32 fontsize
+    left align
+    middle valign
+    0.1 0.1 0.1 rgb
+    (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
+  end
 
-  % Price stack
-  (kablammo) font
-  58 fontsize
-  left align
-  top valign
-  fit textfit
-  0.92 0.07 0.16 rgb
-  ($) $(sale_price) 2 concat 26 136 220 74 textbox
+  frame 4 begin
+    % Price stack
+    (kablammo) font
+    58 fontsize
+    left align
+    top valign
+    fit textfit
+    0.92 0.07 0.16 rgb
+    ($) $(sale_price) 2 concat 26 136 220 74 textbox
 
-  (kablammo) font
-  16 fontsize
-  left align
-  top valign
-  fit textfit
-  0.35 0.35 0.35 rgb
-  (sans) font
-  (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
+    (kablammo) font
+    14 fontsize
+    left align
+    top valign
+    fit textfit
+    0 0 0 rgb
+    (sans) font
+    (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
+  end
 
-  % Brand image + machine-readable codes
-  contain imagefit
-  (logo) 284 220 118 56 image
+  frame 5 begin
+    % Brand image
+    contain imagefit
+    (logo) 285 90 110 110 image
+  end
 
-  0 0 0 rgb
-  $(sku) c128b 26 240 214 28 barcode
-  $(promo_url) qr 336 140 68 68 barcode
+  frame 6 begin
+    % Machine-readable codes
+    0 0 0 rgb
+    $(promo_url) qr 355 215 60 60 barcode
+    $(sku) c128b 26 240 214 28 barcode
+  end
 end
 ```
 > **Wanna see what this looks like?** [Try our tutorial](docs/tutorial/tutorial.md).
