@@ -14,12 +14,28 @@ use barcoders::sym::{
     ean8::EAN8,
     ean13::{EAN13, UPCA},
 };
-use cairo::{Antialias, Context, PdfSurface};
+use cairo::{Antialias, Context, Filter, Format, ImageSurface, PdfSurface, SurfacePattern};
 use datamatrix::{DataMatrix, SymbolList};
 use pango::FontDescription;
 use qrcode::{Color, EcLevel, QrCode};
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ScaledImageKey {
+    alias: String,
+    width_px: i32,
+    height_px: i32,
+}
+
+const IMAGE_RESAMPLE_FILTER: cairo::Filter = cairo::Filter::Good;
+const IMAGE_CACHE_SCALE: f64 = 3.0;
+
+#[derive(Default)]
+pub struct RenderCache {
+    image_surfaces: HashMap<String, cairo::ImageSurface>,
+    scaled_image_surfaces: HashMap<ScaledImageKey, cairo::ImageSurface>,
+}
 
 #[derive(Debug, PartialEq)]
 struct EncodedQr {
@@ -75,11 +91,6 @@ pub enum RenderError {
         message: String,
     },
     Cairo(cairo::Error),
-}
-
-#[derive(Default)]
-pub struct RenderCache {
-    image_surfaces: HashMap<String, cairo::ImageSurface>,
 }
 
 impl From<cairo::Error> for RenderError {
@@ -1004,6 +1015,66 @@ fn get_or_load_image_surface<'a>(
         .expect("cache insert must exist"))
 }
 
+fn normalize_surface_dims(width: f64, height: f64) -> (i32, i32) {
+    let w = width.round().max(1.0) as i32;
+    let h = height.round().max(1.0) as i32;
+    (w, h)
+}
+
+fn build_scaled_surface(
+    source: &cairo::ImageSurface,
+    target_w: i32,
+    target_h: i32,
+) -> Result<cairo::ImageSurface, RenderError> {
+    if source.width() == target_w && source.height() == target_h {
+        return Ok(source.clone());
+    }
+
+    let dest = cairo::ImageSurface::create(Format::ARgb32, target_w, target_h)?;
+    let ctx = Context::new(&dest)?;
+
+    ctx.scale(
+        target_w as f64 / source.width() as f64,
+        target_h as f64 / source.height() as f64,
+    );
+
+    let pattern = SurfacePattern::create(source);
+    pattern.set_extend(cairo::Extend::Pad);
+    pattern.set_filter(IMAGE_RESAMPLE_FILTER);
+
+    ctx.set_source(&pattern)?;
+    ctx.paint()?;
+    dest.mark_dirty();
+
+    Ok(dest)
+}
+
+fn get_or_load_scaled_image_surface<'a>(
+    cache: &'a mut RenderCache,
+    alias: &str,
+    path: &Path,
+    target_w: f64,
+    target_h: f64,
+) -> Result<&'a ImageSurface, RenderError> {
+    let (width_px, height_px) = normalize_surface_dims(target_w, target_h);
+    let key = ScaledImageKey {
+        alias: alias.to_string(),
+        width_px,
+        height_px,
+    };
+
+    if !cache.scaled_image_surfaces.contains_key(&key) {
+        let source = get_or_load_image_surface(cache, alias, path)?.clone();
+        let scaled = build_scaled_surface(&source, width_px, height_px)?;
+        cache.scaled_image_surfaces.insert(key.clone(), scaled);
+    }
+
+    Ok(cache
+        .scaled_image_surfaces
+        .get(&key)
+        .expect("scaled cache insert must exist"))
+}
+
 fn render_image(
     ctx: &Context,
     context: &RenderContext,
@@ -1037,19 +1108,20 @@ fn render_image(
         });
     }
 
-    let surface = get_or_load_image_surface(cache, asset, &registered.path)?;
-    let src_w = surface.width() as f64;
-    let src_h = surface.height() as f64;
+    let (src_w, src_h) = {
+        let source = get_or_load_image_surface(cache, asset, &registered.path)?;
+        (source.width() as f64, source.height() as f64)
+    };
 
-    let (draw_x, draw_y, scale_x, scale_y) = match fit {
-        ImageFit::Stretch => (x, y, width / src_w, height / src_h),
+    let (draw_x, draw_y, draw_w, draw_h) = match fit {
+        ImageFit::Stretch => (x, y, width, height),
         ImageFit::Contain => {
             let s = (width / src_w).min(height / src_h);
             let draw_w = src_w * s;
             let draw_h = src_h * s;
             let dx = x + (width - draw_w) / 2.0;
             let dy = y + (height - draw_h) / 2.0;
-            (dx, dy, s, s)
+            (dx, dy, draw_w, draw_h)
         }
         ImageFit::Cover => {
             let s = (width / src_w).max(height / src_h);
@@ -1057,22 +1129,23 @@ fn render_image(
             let draw_h = src_h * s;
             let dx = x + (width - draw_w) / 2.0;
             let dy = y + (height - draw_h) / 2.0;
-            (dx, dy, s, s)
+            (dx, dy, draw_w, draw_h)
         }
     };
+
+    let cache_w = draw_w * IMAGE_CACHE_SCALE;
+    let cache_h = draw_h * IMAGE_CACHE_SCALE;
+    let scaled_surface = get_or_load_scaled_image_surface(cache, asset, &registered.path, cache_w, cache_h)?;
 
     ctx.save()?;
     ctx.rectangle(x, y, width, height);
     ctx.clip();
 
     ctx.translate(draw_x, draw_y);
-    ctx.scale(scale_x, scale_y);
-
-    let pattern = cairo::SurfacePattern::create(surface);
-    pattern.set_extend(cairo::Extend::Pad);
-    pattern.set_filter(cairo::Filter::Good);
-
-    ctx.set_source(&pattern)?;
+    ctx.scale(1.0 / IMAGE_CACHE_SCALE, 1.0 / IMAGE_CACHE_SCALE);
+    ctx.set_source_surface(scaled_surface, 0.0, 0.0)?;
+    let pattern = ctx.source();
+    pattern.set_filter(Filter::Best);
     ctx.paint()?;
     ctx.restore()?;
 
