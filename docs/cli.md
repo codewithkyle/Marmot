@@ -30,7 +30,7 @@ Example:
 cargo run -- pack test/test-1.psl demo
 cargo run -- check demo.marmot data/test-1.json
 cargo run -- render demo.marmot data/test-1.json --output out.pdf
-cargo run -- batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf" --timings
+cargo run -- batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{sku}.pdf" --timings
 ```
 
 ## Command Reference
@@ -130,7 +130,7 @@ marmot batch [OPTIONS] <package> <records> --output-dir <dir> --output-name <tem
 Options:
 
 - `--output-dir <DIR>`: destination directory for generated PDFs (created if missing)
-- `--output-name <TEMPLATE>`: filename template supporting `{id}` and `{index}`
+- `--output-name <TEMPLATE>`: filename template supporting `{index}` and top-level JSON fields (e.g. `{sku}`, `{id}`)
 - `-j, --jobs <N>`: worker count (`0` = auto-detect CPU parallelism)
 - `--trust-data`: skip upfront per-record slot validation in batch mode
 - `--timings`: print stage timings and per-record render latency distribution
@@ -138,9 +138,9 @@ Options:
 Examples:
 
 ```bash
-marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf"
-marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "label-{index}.pdf" -j 16 --timings
-marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{id}.pdf" --trust-data --timings
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{sku}.pdf"
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{index}-{sku}-{buy_qty}-{get_qty}.pdf" -j 16 --timings
+marmot batch demo.marmot data/batch-10k.jsonl --output-dir out --output-name "{sku}.pdf" --trust-data --timings
 ```
 
 Behavior:
@@ -159,7 +159,9 @@ Batch timing output (`--timings`) includes:
 Output name template notes:
 
 - `{index}` uses 1-based input line number.
-- `{id}` requires an `id` field in each record and must be string/number/bool.
+- Any other placeholder like `{sku}` reads a top-level field from each JSONL record.
+- You can combine many fields, e.g. `{index}-{sku}-{buy_qty}-{get_qty}.pdf`.
+- Referenced fields must be string/number/bool.
 - Output names are sanitized to avoid invalid filesystem characters.
 - Path `..` segments are rejected.
 
@@ -227,10 +229,10 @@ Common validation behavior:
 - Cause: duplicated font alias in template or repeated file names during packaging.
 - Fix: make aliases and package filenames unique.
 
-## `record missing id field required by output template`
+## `record missing field '<name>' required by output template`
 
-- Cause: `--output-name` contains `{id}` but a JSONL record has no `id` key.
-- Fix: add `id` to each record or use `{index}` in output template.
+- Cause: `--output-name` references a JSON field that is missing in a record.
+- Fix: add the field to each record or adjust the template (for example use `{index}` or an existing key like `{sku}`).
 
 ## `batch produced no outputs`
 

@@ -21,3 +21,28 @@ Expected result:
 - `check` prints `OK`.
 - Render output written to `./out/tutorial.pdf`.
 
+## Batch Render
+
+After running the `pack` command above you can batch render 10,000 PDFs using the `batch` command:
+
+```bash
+cargo run -- batch ./out/tutorial.marmot ./docs/tutorial/tutorial-10k.jsonl --output-dir ./out --output-name "{sku}.pdf" --timings
+```
+
+Example timings output:
+
+```
+batch: jobs=16
+batch complete: success=10000, failed=0, skipped=0
+timings:
+    prep:    40.366 ms
+    process: 24.043 s
+    total:   24.083 s
+    render avg:   38.360 ms
+    render min:   23.355 ms
+    render max:   373.105 ms
+    render p90:   43.069 ms
+    render p95:   50.459 ms
+    render p99:   75.215 ms
+    render p99.9: 348.927 ms
+```

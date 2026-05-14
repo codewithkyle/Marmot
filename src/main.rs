@@ -21,7 +21,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::{render_pdf, render_pdf_with_cache, RenderCache},
+    renderer::{RenderCache, render_pdf, render_pdf_with_cache},
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -120,7 +120,7 @@ fn main() -> Result<()> {
                         .long("output-name")
                         .required(true)
                         .value_name("TEMPlATE")
-                        .help("Filename template, supports {id} and {index}, e.g. {id}.pdf"),
+                        .help("Filename template with {index} and top-level record fiels, e.g. {sku}.pdf or {sku}-{id}.pdf"),
                 )
                 .arg(
                     Arg::new("jobs")
@@ -667,23 +667,50 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 fn format_output_name(template: &str, record: &Value, index: usize) -> Result<String> {
-    let mut out = template.replace("{index}", &index.to_string());
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut cursor = 0usize;
 
-    if out.contains("{id}") {
-        let id_value = record
-            .get("id")
-            .ok_or_else(|| anyhow!("record missing id field required by output template"))?;
-        let id_text = value_to_filename_fragment(id_value)
-            .ok_or_else(|| anyhow!("record id must be string/number/bool for output template"))?;
+    while let Some(open_rel) = template[cursor..].find('{') {
+        let open = cursor + open_rel;
+        out.push_str(&template[cursor..open]);
 
-        out = out.replace("{id}", &id_text);
+        let after_open = open + 1;
+        if let Some(close_rel) = template[after_open..].find('}') {
+            let close = after_open + close_rel;
+            let key = &template[after_open..close];
+
+            let replacement = if key == "index" {
+                index.to_string()
+            } else {
+                let value = record.get(key).ok_or_else(|| {
+                    anyhow!("record missing field '{}' required by output template", key)
+                })?;
+                value_to_filename_fragment(value).ok_or_else(|| {
+                    anyhow!(
+                        "record field '{}' must be string/number/bool for output template",
+                        key
+                    )
+                })?
+            };
+
+            out.push_str(&replacement);
+            cursor = close + 1;
+        } else {
+            out.push_str(&template[open..]);
+            cursor = template.len();
+            break;
+        }
+    }
+
+    if cursor < template.len() {
+        out.push_str(&template[cursor..]);
     }
 
     let out = sanitize_filename(&out);
 
     if out.contains("..") {
         bail!("output file contains unsafe '..': {}", out);
-    } 
+    }
 
     Ok(out)
 }
@@ -816,4 +843,68 @@ fn percentile_duration(sorted: &[Duration], percentile: f64) -> Duration {
     let rank = (percentile.clamp(0.0, 1.0) * n as f64).ceil() as usize;
     let index = rank.saturating_sub(1).min(n - 1);
     sorted[index]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn output_name_supports_single_top_level_field() {
+        let record = json!({ "sku": "49000000001" });
+        let out = format_output_name("{sku}.pdf", &record, 1).unwrap();
+        assert_eq!(out, "49000000001.pdf");
+    }
+    #[test]
+    fn output_name_supports_many_fields() {
+        let record = json!({
+            "sku": "49000000001",
+            "buy_qty": 1,
+            "get_qty": 2
+        });
+        let out = format_output_name("{index}-{sku}-{buy_qty}-{get_qty}.pdf", &record, 7).unwrap();
+        assert_eq!(out, "7-49000000001-1-2.pdf");
+    }
+    #[test]
+    fn output_name_supports_repeated_fields() {
+        let record = json!({ "sku": "ABC123" });
+        let out = format_output_name("{sku}-{sku}.pdf", &record, 1).unwrap();
+        assert_eq!(out, "ABC123-ABC123.pdf");
+    }
+    #[test]
+    fn output_name_errors_when_field_missing() {
+        let record = json!({ "id": "x" });
+        let err = format_output_name("{sku}.pdf", &record, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("record missing field 'sku'"));
+    }
+    #[test]
+    fn output_name_errors_when_field_not_scalar() {
+        let record = json!({ "sku": { "nested": "x" } });
+        let err = format_output_name("{sku}.pdf", &record, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("record field 'sku' must be string/number/bool"));
+    }
+    #[test]
+    fn output_name_keeps_malformed_open_brace_literal() {
+        let record = json!({ "sku": "49000000001" });
+        let out = format_output_name("prefix-{sku.pdf", &record, 1).unwrap();
+        assert_eq!(out, "prefix-{sku.pdf");
+    }
+    #[test]
+    fn output_name_sanitizes_invalid_filename_chars() {
+        let record = json!({ "sku": "49/000:000?01" });
+        let out = format_output_name("{sku}.pdf", &record, 1).unwrap();
+        assert_eq!(out, "49_000_000_01.pdf");
+    }
+    #[test]
+    fn output_name_rejects_dotdot_segments() {
+        let record = json!({ "sku": ".." });
+        let err = format_output_name("{sku}.pdf", &record, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unsafe '..'"));
+    }
 }
