@@ -10,7 +10,13 @@ This document describes the syntax and semantics currently implemented.
 %!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 draw begin
+  frame 1 begin
+  end
 end
 ```
 
@@ -23,12 +29,14 @@ Current parser expects this order:
 3. Optional `slots begin ... end`
 4. Optional `fonts begin ... end`
 5. Optional `assets begin ... end`
-6. Required `draw begin ... end`
+6. Required `frames begin ... end`
+7. Required `draw begin ... end`
 
 Notes:
 
 - `slots`, `fonts`, and `assets` are optional blocks.
-- If present, block order is fixed: `slots` -> `fonts` -> `assets` -> `draw`.
+- `frames` and `draw` are required blocks.
+- Block order is fixed: `slots` -> `fonts` -> `assets` -> `frames` -> `draw`.
 
 ## Lexical Tokens
 
@@ -188,15 +196,41 @@ Rules:
 - Paths are resolved inside the `.marmot` package.
 - Duplicate aliases are rejected at render-context build time.
 
+## Frames Block
+
+Syntax:
+
+```psl
+frames begin
+  <u32> <id>
+  ...
+end
+```
+
+Rules:
+
+- `<u32>` must be a non-negative integer in `u32` range.
+- `<id>` must be a word token.
+- Frame indices are referenced by `draw` frame blocks.
+
 ## Draw Block
 
 Syntax:
 
 ```psl
 draw begin
-  ...operators...
+  frame <u32> begin
+    ...operators...
+  end
+  ...
 end
 ```
+
+Rules:
+
+- Every draw block entry must be a `frame <u32> begin ... end` section.
+- Referenced frame index must exist in the `frames` block.
+- Each frame section has its own stack/path validation.
 
 The draw language is stack-based.
 
@@ -359,7 +393,7 @@ Initial render state defaults:
 
 ## Slot Use in `draw`
 
-When `$(slot)` appears in `draw`:
+When `$(slot)` appears in a frame draw block:
 
 - Slot must be declared in `slots` block.
 - Slot type controls how parser interprets it:
@@ -382,6 +416,7 @@ When `$(slot)` appears in `draw`:
 - Missing expected keywords (`begin`, `end`, etc.)
 - Unexpected EOF in blocks
 - Stack underflow or leftover stack values
+- Unknown frame index references in `draw`
 - Unknown slot references in `draw`
 - Path state violations (`stroke`/`fill` misuse)
 - Invalid literal operand constraints
@@ -419,20 +454,29 @@ fonts begin
   kablammo "fonts/Kablammo.ttf"
 end
 
+frames begin
+  1 FRAME_BASE
+  2 FRAME_TITLE
+end
+
 draw begin
-  1 1 1 rgb
-  0 0 300 120 rect fill
+  frame 1 begin
+    1 1 1 rgb
+    0 0 300 120 rect fill
 
-  1 0 0 rgb
-  20 40 260 40 rect fill
+    1 0 0 rgb
+    20 40 260 40 rect fill
+  end
 
-  0 0 0 rgb
-  14 fontsize
-  center align
-  middle valign
-  word wrap
-  grow textfit
-  (kablammo) font
-  $(product_name) 20 40 260 40 textbox
+  frame 2 begin
+    0 0 0 rgb
+    14 fontsize
+    center align
+    middle valign
+    word wrap
+    grow textfit
+    (kablammo) font
+    $(product_name) 20 40 260 40 textbox
+  end
 end
 ```
