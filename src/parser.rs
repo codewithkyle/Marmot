@@ -7,6 +7,30 @@ use crate::{
 };
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameDecl {
+    index: u32,
+    id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum FrameValueState {
+    Unset,
+    Unused,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct FrameRuntimeState {
+    value: FrameValueState,
+    visible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameDrawBlock {
+    index: u32,
+    ops: Vec<DrawOp>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BarcodeSymbology {
     Code39,
@@ -17,7 +41,7 @@ pub enum BarcodeSymbology {
     EAN13,
     EAN8,
     QR,
-    DataMatrix
+    DataMatrix,
 }
 
 impl BarcodeSymbology {
@@ -68,6 +92,8 @@ pub struct Template {
     pub draw: Vec<DrawOp>,
     pub fonts: Vec<FontDecl>,
     pub assets: Vec<AssetDecl>,
+    pub frames: Vec<FrameDecl>,
+    pub draw_frames: Vec<FrameDrawBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -264,6 +290,11 @@ pub enum ParseError {
         line: usize,
         column: usize,
     },
+    UnexpectedFrameToken {
+        found: TokenKind,
+        line: usize,
+        column: usize,
+    },
     UnexpectedStackValue {
         operator: String,
         expected: String,
@@ -353,6 +384,7 @@ impl Parser {
         let slots = self.parse_optional_slots()?;
         let fonts = self.parse_optional_fonts()?;
         let assets = self.parse_optional_assets()?;
+        let frames = self.parse_frames()?;
 
         let slot_lookup = Self::build_slot_lookup(&slots);
 
@@ -367,6 +399,7 @@ impl Parser {
             draw,
             fonts,
             assets,
+            frames,
         })
     }
 
@@ -715,13 +748,13 @@ impl Parser {
                     for _ in 0..count {
                         let value = Self::pop_string_or_number(&mut stack, "concat", token)?;
                         //match value {
-                            //TextValue::Concat(_) => {
-                                //return Err(ParseError::InvalidConcatOperation {
-                                    //line: token.line,
-                                    //column: token.column,
-                                //});
-                            //}
-                            //_ => {}
+                        //TextValue::Concat(_) => {
+                        //return Err(ParseError::InvalidConcatOperation {
+                        //line: token.line,
+                        //column: token.column,
+                        //});
+                        //}
+                        //_ => {}
                         //};
                         values.push(value);
                     }
@@ -1061,6 +1094,56 @@ impl Parser {
 
         self.expect_word("end")?;
         Ok(fonts)
+    }
+
+    fn parse_frames(&mut self) -> Result<Vec<FrameDecl>, ParseError> {
+        self.expect_word("frames")?;
+        self.expect_word("begin")?;
+
+        let mut frames: Vec<FrameDecl> = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "frame block".to_string(),
+                });
+            }
+            frames.push(self.parse_frame_decl()?);
+        }
+        self.expect_word("end")?;
+        Ok(frames)
+    }
+
+    fn parse_frame_decl(&mut self) -> Result<FrameDecl, ParseError> {
+        let idx_token = self.advance().clone();
+        let index = match idx_token.kind {
+            TokenKind::Number(n)
+                if n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 =>
+            {
+                n as u32
+            }
+            found => {
+                return Err(ParseError::UnexpectedFrameToken {
+                    found: found.clone(),
+                    line: idx_token.line,
+                    column: idx_token.column,
+                });
+            }
+        };
+
+        let id_token = self.advance().clone();
+        let id = match id_token.kind {
+            TokenKind::Word(id) => id,
+            found => {
+                return Err(ParseError::UnexpectedFrameToken {
+                    found: found.clone(),
+                    line: id_token.line,
+                    column: id_token.column,
+                });
+            }
+        };
+
+        Ok(FrameDecl { index, id })
     }
 
     fn parse_optional_slots(&mut self) -> Result<Vec<SlotDecl>, ParseError> {
