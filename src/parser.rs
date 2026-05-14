@@ -508,7 +508,7 @@ impl Parser {
             StackValue::BarcodeSymbology(symbol) => Ok(symbol),
             other => Err(ParseError::UnexpectedStackValue {
                 operator: operator.to_string(),
-                expected: "number".to_string(),
+                expected: "barcode".to_string(),
                 found: other.type_name().to_string(),
                 line: token.line,
                 column: token.column,
@@ -820,7 +820,7 @@ impl Parser {
                     ops.push(DrawOp::SetRgb { r, g, b });
                 }
                 TokenKind::Word(word) if word == "cmyk" => {
-                    Self::require_stack(&stack, "cmyk", 3, token)?;
+                    Self::require_stack(&stack, "cmyk", 4, token)?;
                     let k = Self::pop_number(&mut stack, "cmyk", token)?;
                     let y = Self::pop_number(&mut stack, "cmyk", token)?;
                     let m = Self::pop_number(&mut stack, "cmyk", token)?;

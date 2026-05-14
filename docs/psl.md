@@ -210,13 +210,20 @@ Literals push onto stack:
 
 ## Color and stroke
 
-- `rgb` consumes `r g b` (numbers), each literal must be in `0..=1`
+- `rgb` consumes `r g b` (numbers)
+- `cmyk` consumes `c m y k` (numbers)
 - `strokewidth` consumes `width` (number), must be `> 0` for literal values
+
+Color value behavior:
+
+- Parser does not enforce `0..=1` bounds for `rgb`/`cmyk` values.
+- Renderer clamps final RGB channels to `0..=1`.
 
 Example:
 
 ```psl
 1 0 0 rgb
+0 1 1 0 cmyk
 2 strokewidth
 ```
 
@@ -310,6 +317,32 @@ contain imagefit
 (logo) 20 20 120 60 image
 ```
 
+## Barcode drawing
+
+- Symbology words push a barcode value onto the stack:
+  - `c39`, `c128a`, `c128b`, `c128c`, `upca`, `ean13`, `ean8`, `qr`, `datamatrix`
+- `barcode` consumes six values:
+  - `value symbology x y width height`
+  - `value` is a text value (literal, string slot, or transformed text)
+  - `symbology` must be one of the words above
+  - `width` and `height` must be `> 0` for literals
+
+Render behavior notes:
+
+- 1D codes (`c39`, `c128a/b/c`, `upca`, `ean13`, `ean8`) are drawn as vector bars.
+- `upca`, `ean13`, and `ean8` guard bars are extended by about `5X` (module widths).
+- `qr` is encoded with error correction level `M` and a 4-module quiet zone.
+- `datamatrix` is encoded with Data Matrix symbols (can be rectangular) and a 1-module quiet zone.
+
+Example:
+
+```psl
+$(sku) c39 20 20 200 48 barcode
+$(gtin) ean13 20 80 200 72 barcode
+$(url) qr 240 20 80 80 barcode
+$(serial) datamatrix 340 20 80 80 barcode
+```
+
 ## Runtime Defaults
 
 Initial render state defaults:
@@ -368,6 +401,8 @@ When `$(slot)` appears in `draw`:
 - Wrong asset type
 - Invalid image geometry
 - Image decode/format issues
+- Invalid barcode geometry
+- Barcode encode/data validation failures
 - Cairo rendering errors
 
 ## Full Example
@@ -401,11 +436,3 @@ draw begin
   $(product_name) 20 40 260 40 textbox
 end
 ```
-
-## Not Implemented Yet
-
-The following appear in older examples but are not implemented in current parser/renderer:
-
-- `cmyk`, `grey`
-
-Use only operators listed in this document for reliable results.
