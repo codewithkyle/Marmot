@@ -21,6 +21,10 @@ use qrcode::{Color, EcLevel, QrCode};
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
+pub struct RenderOutcome {
+    pub warnings: RenderWarnings,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 enum FrameValueState {
@@ -1277,7 +1281,7 @@ fn execute_draw(
     data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
-) -> Result<(), RenderError> {
+) -> Result<RenderWarnings, RenderError> {
     let mut state = RenderState::default();
     let mut pending_path: Option<PendingPath> = None;
     let layout = pangocairo::functions::create_layout(ctx);
@@ -1492,7 +1496,7 @@ fn execute_draw(
         }
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 pub fn render_pdf_with_cache(
@@ -1503,15 +1507,15 @@ pub fn render_pdf_with_cache(
     data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
-) -> Result<(), RenderError> {
+) -> Result<RenderOutcome, RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
     let frame_state = build_initial_frame_state(frames);
 
-    execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
+    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
     surface.finish();
 
-    Ok(())
+    Ok(RenderOutcome { warnings })
 }
 
 pub fn render_pdf(
@@ -1521,7 +1525,7 @@ pub fn render_pdf(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
-) -> Result<(), RenderError> {
+) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
-    render_pdf_with_cache(page, frames, draw_frames, output_path, data, context, &mut cache)
+    return render_pdf_with_cache(page, frames, draw_frames, output_path, data, context, &mut cache)
 }

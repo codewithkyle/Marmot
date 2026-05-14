@@ -21,7 +21,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::{RenderCache, render_pdf, render_pdf_with_cache},
+    renderer::{RenderCache, RenderWarnings, render_pdf, render_pdf_with_cache},
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -208,6 +208,9 @@ struct BatchJob {
 enum BatchResult {
     Success {
         render_time: Duration,
+        warnings: RenderWarnings,
+        line_no: usize,
+        output_path: PathBuf,
     },
     Failed {
         line_no: usize,
@@ -327,10 +330,23 @@ fn batch(args: BatchArgs) -> Result<()> {
 
     while completed < dispatched {
         match result_rx.recv() {
-            Ok(BatchResult::Success { render_time }) => {
+            Ok(BatchResult::Success {
+                render_time,
+                warnings,
+                line_no,
+                output_path,
+            }) => {
                 success += 1;
                 completed += 1;
                 render_times.push(render_time);
+                for frame_idx in warnings.empty_value_frames {
+                    eprintln!(
+                        "warning: line {} ({}): frame {} has empty value",
+                        line_no,
+                        output_path.display(),
+                        frame_idx
+                    );
+                }
             }
             Ok(BatchResult::Failed {
                 line_no,
@@ -425,7 +441,7 @@ fn render(args: RenderArgs) -> Result<()> {
     let prep = prep_start.elapsed();
     let render_start = Instant::now();
 
-    render_pdf(
+    let outcome = render_pdf(
         &template.page,
         &template.frames,
         &template.draw_frames,
@@ -434,6 +450,10 @@ fn render(args: RenderArgs) -> Result<()> {
         &render_context,
     )
     .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
+
+    for frame_idx in outcome.warnings.empty_value_frames {
+        eprintln!("warning: frame {} has empty value", frame_idx);
+    }
 
     let render = render_start.elapsed();
     let total = total_start.elapsed();
@@ -789,8 +809,11 @@ fn process_batch_line(
         &render_context,
         render_cache,
     ) {
-        Ok(()) => BatchResult::Success {
+        Ok(outcome) => BatchResult::Success {
             render_time: render_start.elapsed(),
+            warnings: outcome.warnings,
+            output_path: output_path.clone(),
+            line_no,
         },
         Err(err) => BatchResult::Failed {
             line_no,
