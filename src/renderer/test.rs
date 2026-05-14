@@ -2,10 +2,17 @@ use std::{collections::HashMap, path::PathBuf};
 
 use super::*;
 use crate::{
-    parser::{DrawOp, FrameDrawBlock, NumberValue, Page},
+    parser::{DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page},
     resources::RegisteredAsset,
 };
 use serde_json::Value;
+
+fn default_frames() -> Vec<FrameDecl> {
+    vec![FrameDecl {
+        index: 1,
+        id: "FRAME_1".to_string(),
+    }]
+}
 
 fn as_draw_frames(draw_ops: &[DrawOp]) -> Vec<FrameDrawBlock> {
     vec![FrameDrawBlock {
@@ -22,9 +29,18 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
     };
+    let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
 
-    execute_draw(&ctx, &draw_frames, data, &render_context, &mut cache)
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        data,
+        &render_context,
+        &mut cache,
+    )
 }
 
 fn render_pdf_for_test(
@@ -34,8 +50,9 @@ fn render_pdf_for_test(
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
+    let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf(page, &draw_frames, output_path, data, context)
+    render_pdf(page, &frames, &draw_frames, output_path, data, context)
 }
 
 fn render_pdf_with_cache_for_test(
@@ -46,8 +63,9 @@ fn render_pdf_with_cache_for_test(
     context: &RenderContext,
     cache: &mut RenderCache,
 ) -> Result<(), RenderError> {
+    let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf_with_cache(page, &draw_frames, output_path, data, context, cache)
+    render_pdf_with_cache(page, &frames, &draw_frames, output_path, data, context, cache)
 }
 
 #[test]
@@ -1621,8 +1639,11 @@ fn errors_when_image_geometry_is_invalid() {
         fonts: HashMap::new(),
         assets,
     };
+    let frames = default_frames();
     let draw_frames = as_draw_frames(&draw_ops);
-    let err = execute_draw(&ctx, &draw_frames, None, &context, &mut cache).unwrap_err();
+    let frame_state = build_initial_frame_state(&frames);
+    let err = execute_draw(&ctx, &draw_frames, &frame_state, None, &context, &mut cache)
+        .unwrap_err();
     assert!(matches!(
         err,
         RenderError::InvalidImageGeometry { width, height, .. }

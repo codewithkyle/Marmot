@@ -9,20 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameDecl {
-    index: u32,
-    id: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum FrameValueState {
-    Unset,
-    Unused,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct FrameRuntimeState {
-    value: FrameValueState,
-    visible: bool,
+    pub index: u32,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

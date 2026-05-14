@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::parser::{AssetType, BarcodeSymbology, DrawOp, FrameDrawBlock, NumberValue, Page, TextValue};
+use crate::parser::{AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
 use barcoders::sym::{
     code39::Code39,
@@ -20,6 +20,37 @@ use pango::FontDescription;
 use qrcode::{Color, EcLevel, QrCode};
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+enum FrameValueState {
+    Unset,
+    Unused,
+    Set(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct FrameRuntimeState {
+    value: FrameValueState,
+    visible: bool,
+}
+
+#[allow(dead_code)]
+impl FrameRuntimeState {
+    pub fn unused_default() -> Self {
+        Self {
+            visible: true,
+            value: FrameValueState::Unused,
+        }
+    }
+
+    pub fn unset_default() -> Self {
+        Self {
+            visible: false,
+            value: FrameValueState::Unset,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ScaledImageKey {
@@ -48,6 +79,11 @@ struct EncodedMatrix {
     width: usize,
     height: usize,
     modules: Vec<bool>,
+}
+
+#[derive(Debug, Default)]
+pub struct RenderWarnings {
+    pub empty_value_frames: Vec<u32>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1199,9 +1235,45 @@ fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont
     }
 }
 
+fn should_render_frame(state: Option<&FrameRuntimeState>) -> bool {
+    let Some(state) = state else {
+        return true;
+    };
+    if !state.visible {
+        return false;
+    }
+    !matches!(state.value, FrameValueState::Unset)
+}
+
+fn build_initial_frame_state(
+    frames: &[FrameDecl],
+) -> HashMap<u32, FrameRuntimeState> {
+    let mut out = HashMap::new();
+    for frame in frames {
+        out.insert(frame.index, FrameRuntimeState::unused_default());
+    }
+    out
+}
+
+fn warn_if_empty_set_value(
+    frame_index: u32,
+    runtime: Option<&FrameRuntimeState>,
+    warnings: &mut RenderWarnings,
+) {
+    if let Some(FrameRuntimeState {
+        value: FrameValueState::Set(v),
+        ..
+    }) = runtime {
+        if v.is_empty() {
+            warnings.empty_value_frames.push(frame_index)
+        }
+    }
+}
+
 fn execute_draw(
     ctx: &Context,
     draw_frames: &[FrameDrawBlock],
+    frame_state: &HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
@@ -1209,8 +1281,17 @@ fn execute_draw(
     let mut state = RenderState::default();
     let mut pending_path: Option<PendingPath> = None;
     let layout = pangocairo::functions::create_layout(ctx);
+    let mut warnings = RenderWarnings::default();
 
     for frame in draw_frames {
+        let runtime = frame_state.get(&frame.index);
+
+        warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+
+        if !should_render_frame(runtime) {
+            continue;
+        }
+
         for op in &frame.ops {
             match op {
                 DrawOp::Barcode {
@@ -1416,6 +1497,7 @@ fn execute_draw(
 
 pub fn render_pdf_with_cache(
     page: &Page,
+    frames: &[FrameDecl],
     draw_frames: &[FrameDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
@@ -1424,9 +1506,9 @@ pub fn render_pdf_with_cache(
 ) -> Result<(), RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
+    let frame_state = build_initial_frame_state(frames);
 
-    execute_draw(&ctx, draw_frames, data, context, cache)?;
-
+    execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
     surface.finish();
 
     Ok(())
@@ -1434,11 +1516,12 @@ pub fn render_pdf_with_cache(
 
 pub fn render_pdf(
     page: &Page,
+    frames: &[FrameDecl],
     draw_frames: &[FrameDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
     let mut cache = RenderCache::default();
-    render_pdf_with_cache(page, draw_frames, output_path, data, context, &mut cache)
+    render_pdf_with_cache(page, frames, draw_frames, output_path, data, context, &mut cache)
 }
