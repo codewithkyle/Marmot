@@ -41,6 +41,7 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
         &render_context,
         &mut cache,
     )
+    .map(|_| ())
 }
 
 fn render_pdf_for_test(
@@ -52,7 +53,7 @@ fn render_pdf_for_test(
 ) -> Result<(), RenderError> {
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf(page, &frames, &draw_frames, output_path, data, context)
+    render_pdf(page, &frames, &draw_frames, output_path, data, context).map(|_| ())
 }
 
 fn render_pdf_with_cache_for_test(
@@ -66,6 +67,7 @@ fn render_pdf_with_cache_for_test(
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
     render_pdf_with_cache(page, &frames, &draw_frames, output_path, data, context, cache)
+        .map(|_| ())
 }
 
 #[test]
