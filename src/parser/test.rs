@@ -328,8 +328,8 @@ end
         err,
         ParseError::StackUnderflow {
             operator: "cmyk".to_string(),
-            expected: 1,
-            actual: 0,
+            expected: 4,
+            actual: 3,
             line: 5,
             column: 15,
         }

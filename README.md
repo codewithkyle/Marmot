@@ -21,7 +21,7 @@ The initial goal is to render label-sized PDFs from Marmot templates and JSON/JS
 
 ## PSL (PostScript-Like) Template Language
 
-Example below uses currently supported syntax. For full operator details, see [`docs/psl.md`](docs/psl.md).
+Example below uses currently supported syntax. For full operator details, see [PSL syntax documentation](docs/psl.md).
 
 ```psl
 %!PSL 0.1
@@ -43,7 +43,7 @@ fonts begin
 end
 
 assets begin
-  logo image "assets/logo.png"
+  logo image "assets/walmart.png"
 end
 
 draw begin
@@ -69,7 +69,7 @@ draw begin
   % Offer callout
   (kablammo) font
   32 fontsize
-  center align
+  left align
   middle valign
   0.1 0.1 0.1 rgb
   (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
@@ -79,6 +79,7 @@ draw begin
   58 fontsize
   left align
   top valign
+  fit textfit
   0.92 0.07 0.16 rgb
   ($) $(sale_price) 2 concat 26 136 220 74 textbox
 
@@ -86,17 +87,21 @@ draw begin
   16 fontsize
   left align
   top valign
+  fit textfit
   0.35 0.35 0.35 rgb
-  (Reg $) $(regular_price) 2 concat 30 210 180 20 textbox
+  (sans) font
+  (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
 
   % Brand image + machine-readable codes
   contain imagefit
-  (logo) 284 86 118 56 image
+  (logo) 284 220 118 56 image
 
+  0 0 0 rgb
   $(sku) c128b 26 240 214 28 barcode
-  $(promo_url) qr 336 184 68 68 barcode
+  $(promo_url) qr 336 140 68 68 barcode
 end
 ```
+> **Wanna see what this looks like?** [Try our tutorial](docs/tutorial/tutorial.md).
 
 ## References
 

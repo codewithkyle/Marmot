@@ -120,6 +120,7 @@ pub enum TextValue {
     LowerCase(Box<TextValue>),
     TitleCase(Box<TextValue>),
     Capitalize(Box<TextValue>),
+    Number(NumberValue),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -231,10 +232,6 @@ pub struct Page {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
-    InvalidConcatOperation {
-        line: usize,
-        column: usize,
-    },
     MustBeLiteralNumber {
         slot: String,
         line: usize,
@@ -516,6 +513,34 @@ impl Parser {
         }
     }
 
+    fn pop_string_or_number(
+        stack: &mut Vec<StackValue>,
+        operator: &str,
+        token: &Token,
+    ) -> Result<TextValue, ParseError> {
+        let Some(value) = stack.pop() else {
+            return Err(ParseError::StackUnderflow {
+                operator: operator.to_string(),
+                expected: 1,
+                actual: 0,
+                line: token.line,
+                column: token.column,
+            });
+        };
+
+        match value {
+            StackValue::Text(text) => Ok(text),
+            StackValue::Number(number) => Ok(TextValue::Number(number)),
+            other => Err(ParseError::UnexpectedStackValue {
+                operator: operator.to_string(),
+                expected: "string or number".to_string(),
+                found: other.type_name().to_string(),
+                line: token.line,
+                column: token.column,
+            }),
+        }
+    }
+
     fn pop_number(
         stack: &mut Vec<StackValue>,
         operator: &str,
@@ -688,16 +713,16 @@ impl Parser {
                     Self::require_stack(&stack, "concat", count, token)?;
                     let mut values: Vec<TextValue> = Vec::new();
                     for _ in 0..count {
-                        let value = Self::pop_string(&mut stack, "concat", token)?;
-                        match value {
-                            TextValue::Concat(_) => {
-                                return Err(ParseError::InvalidConcatOperation {
-                                    line: token.line,
-                                    column: token.column,
-                                });
-                            }
-                            _ => {}
-                        };
+                        let value = Self::pop_string_or_number(&mut stack, "concat", token)?;
+                        //match value {
+                            //TextValue::Concat(_) => {
+                                //return Err(ParseError::InvalidConcatOperation {
+                                    //line: token.line,
+                                    //column: token.column,
+                                //});
+                            //}
+                            //_ => {}
+                        //};
                         values.push(value);
                     }
                     values.reverse();
@@ -934,6 +959,7 @@ impl Parser {
                         height,
                     });
                 }
+                TokenKind::Comment(_) => {}
                 found => {
                     return Err(ParseError::UnexpectedDrawToken {
                         found: found.clone(),

@@ -266,6 +266,10 @@ fn to_capitalize(input: &str) -> String {
 
 fn eval_text(value: &TextValue, data: Option<&Value>) -> Result<String, RenderError> {
     match value {
+        TextValue::Number(number) => {
+            let value = eval_number(number, data)?;
+            Ok(format!("{value}"))
+        }
         TextValue::Literal(text) => Ok(text.clone()),
         TextValue::Slot(name) => {
             let data = data.ok_or_else(|| RenderError::MissingData { slot: name.clone() })?;
