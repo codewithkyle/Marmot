@@ -20,6 +20,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev
+
       - name: Run unit tests
         run: cargo test
 
@@ -33,6 +38,11 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev
 
       - name: Run tutorial commands
         run: |
