@@ -1070,7 +1070,7 @@ fn render_image(
 
     let pattern = cairo::SurfacePattern::create(surface);
     pattern.set_extend(cairo::Extend::Pad);
-    pattern.set_filter(cairo::Filter::Best);
+    pattern.set_filter(cairo::Filter::Good);
 
     ctx.set_source(&pattern)?;
     ctx.paint()?;
