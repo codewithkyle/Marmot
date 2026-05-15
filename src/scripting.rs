@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod test;
+
 use std::{cell::RefCell, rc::Rc};
 
 use mlua::{Lua, UserData, UserDataFields, Value as LuaValue, Error as LuaError};
@@ -11,17 +14,31 @@ struct FrameHandle(Rc<RefCell<FrameRuntimeState>>);
 impl UserData for FrameHandle {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("visible", |_, this| Ok(this.0.borrow().visible));
-        fields.add_field_method_set("visible", |_, this, v: bool| {
-            this.0.borrow_mut().visible = v;
-            Ok(())
+        fields.add_field_method_set("visible", |_, this, v: LuaValue| match v {
+            LuaValue::Boolean(b) => {
+                this.0.borrow_mut().visible = b;
+                Ok(())
+            }
+            _ => Err(LuaError::RuntimeError(
+                "frame.visible expects boolean".to_string(),
+            )),
         });
 
         fields.add_field_method_get("value", |_, this| {
             Ok(this.0.borrow().value_override.clone())
         });
-        fields.add_field_method_set("value", |_, this, v: Option<String>| {
-            this.0.borrow_mut().value_override = v;
-            Ok(())
+        fields.add_field_method_set("value", |_, this, v: LuaValue| match v {
+            LuaValue::Nil => {
+                this.0.borrow_mut().value_override = None;
+                Ok(())
+            }
+            LuaValue::String(s) => {
+                this.0.borrow_mut().value_override = Some(s.to_str()?.to_string());
+                Ok(())
+            }
+            _ => Err(LuaError::RuntimeError(
+                "frame.value expects string or nil".to_string(),
+            )),
         });
     }
 }
