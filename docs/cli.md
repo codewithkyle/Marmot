@@ -111,12 +111,13 @@ Options:
 
 - `-a, --asset <PATH>`: include an asset file in archive at `assets/<filename>`
 - `-f, --font <PATH>`: include a font file in archive at `fonts/<filename>`
+- `-s, --script <PATH>`: include a Lua script file in archive at `scripts/<filename>`
 - `-o, --output-dir <DIR>`: output directory (defaults to current directory)
 
 Example:
 
 ```bash
-marmot pack test/test-6.psl label -f fonts/Kablammo.ttf -o build
+marmot pack test/test-6.psl label -f fonts/Kablammo.ttf -s scripts/FRAME_1.lua -o build
 ```
 
 Creates: `build/label.marmot`
@@ -178,6 +179,7 @@ When options are used, it can also contain:
 
 - `fonts/<filename>` (from `--font`)
 - `assets/<filename>` (from `--asset`)
+- `scripts/<filename>` (from `--script`)
 
 Important:
 
