@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test;
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use mlua::{Lua, UserData, UserDataFields, Value as LuaValue, Error as LuaError};
+use mlua::{Error as LuaError, Lua, RegistryKey, UserData, UserDataFields, Value as LuaValue};
 use serde_json::Value as JsonValue;
 
-use crate::renderer::{FrameRuntimeState};
+use crate::renderer::FrameRuntimeState;
 
 #[derive(Clone)]
 struct FrameHandle(Rc<RefCell<FrameRuntimeState>>);
@@ -43,34 +43,37 @@ impl UserData for FrameHandle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LuaRuntime {
-    source: String,
     lua: Lua,
-    data: Option<serde_json::Value>,
+    compiled_scripts: HashMap<String, RegistryKey>,
+    compiled_sources: HashMap<String, String>,
+    sandbox_base: Option<RegistryKey>,
 }
 
 impl LuaRuntime {
     pub fn new() -> Self {
-        let lua = Lua::new();
-
         Self {
-            source: String::new(),
-            lua,
-            data: Option::None,
+            lua: Lua::new(),
+            compiled_scripts: HashMap::new(),
+            compiled_sources: HashMap::new(),
+            sandbox_base: None,
         }
     }
 
-    pub fn load(&mut self, source: String, data: Option<&JsonValue>) {
-        self.source = source;
-        self.data = data.cloned();
+    pub fn exec(
+        &mut self,
+        frame_id: &str,
+        source: &str,
+        data: Option<&JsonValue>,
+    ) -> mlua::Result<FrameRuntimeState> {
+        let data_api = self.build_data_api(data)?;
+        self.exec_with_data(frame_id, source, &data_api)
     }
 
-    pub fn exec(&self) -> mlua::Result<FrameRuntimeState> {
-        let globals = self.lua.globals();
-
+    pub fn build_data_api(&self, data: Option<&JsonValue>) -> mlua::Result<mlua::Table> {
         let data_api = self.lua.create_table()?;
-        let data_owned = self.data.clone();
+        let data_owned = data.cloned();
 
         let get_slot = self.lua.create_function(move |lua, key: String| {
             let Some(JsonValue::Object(map)) = data_owned.as_ref() else {
@@ -83,17 +86,85 @@ impl LuaRuntime {
         })?;
 
         data_api.set("getSlot", get_slot)?;
-        globals.set("data", data_api)?;
+        Ok(data_api)
+    }
+
+    pub fn exec_with_data(
+        &mut self,
+        frame_id: &str,
+        source: &str,
+        data_api: &mlua::Table,
+    ) -> mlua::Result<FrameRuntimeState> {
+        self.compile_if_needed(frame_id, source)?;
 
         let state = Rc::new(RefCell::new(FrameRuntimeState {
             visible: true,
             value_override: None,
         }));
 
-        globals.set("frame", FrameHandle(state.clone()))?;
-        self.lua.load(&self.source).exec()?;
+        let env = self.lua.create_table()?;
+        env.set("data", data_api.clone())?;
+        env.set("frame", FrameHandle(state.clone()))?;
+
+        let metatable = self.lua.create_table()?;
+        metatable.set("__index", self.sandbox_base()?)?;
+        env.set_metatable(Some(metatable))?;
+
+        let key = self.compiled_scripts.get(frame_id).ok_or_else(|| {
+            LuaError::RuntimeError(format!("compiled script not found for frame '{frame_id}'"))
+        })?;
+        let func: mlua::Function = self.lua.registry_value(key)?;
+        func.call::<()>(env)?;
 
         Ok(state.borrow().clone())
+    }
+
+    fn compile_if_needed(&mut self, frame_id: &str, source: &str) -> mlua::Result<()> {
+        if let Some(prev_source) = self.compiled_sources.get(frame_id) {
+            if prev_source == source {
+                return Ok(());
+            }
+        }
+
+        if let Some(old_key) = self.compiled_scripts.remove(frame_id) {
+            self.lua.remove_registry_value(old_key)?;
+        }
+
+        let wrapped = format!(
+            "return function(__marmot_env) local _ENV = __marmot_env; {} end",
+            source
+        );
+        let func: mlua::Function = self.lua.load(&wrapped).eval()?;
+        let key = self.lua.create_registry_value(func)?;
+
+        self.compiled_scripts.insert(frame_id.to_string(), key);
+        self.compiled_sources
+            .insert(frame_id.to_string(), source.to_string());
+
+        Ok(())
+    }
+
+    fn sandbox_base(&mut self) -> mlua::Result<mlua::Table> {
+        if let Some(key) = &self.sandbox_base {
+            return self.lua.registry_value(key);
+        }
+
+        let globals = self.lua.globals();
+        let base = self.lua.create_table()?;
+
+        for name in [
+            "assert", "error", "ipairs", "next", "pairs", "pcall", "select", "tonumber",
+            "tostring", "type", "xpcall", "math", "string", "table", "utf8",
+        ] {
+            let value = globals.get::<LuaValue>(name)?;
+            if !matches!(value, LuaValue::Nil) {
+                base.set(name, value)?;
+            }
+        }
+
+        let key = self.lua.create_registry_value(base.clone())?;
+        self.sandbox_base = Some(key);
+        Ok(base)
     }
 
     fn json_scalar_to_lua(lua: &Lua, v: &JsonValue) -> mlua::Result<LuaValue> {
@@ -110,7 +181,9 @@ impl LuaRuntime {
                 }
             }
             JsonValue::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),
-            JsonValue::Array(_) | JsonValue::Object(_) => Err(LuaError::RuntimeError("arrays/objects not supported in data.getSlot".to_string()))
+            JsonValue::Array(_) | JsonValue::Object(_) => Err(LuaError::RuntimeError(
+                "data.getSlot only supports string/number/boolean/null in v1".to_string(),
+            )),
         }
     }
 }

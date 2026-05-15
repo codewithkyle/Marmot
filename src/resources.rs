@@ -10,7 +10,7 @@ use image::{ImageFormat, ImageReader};
 use ttf_parser::{Face, name_id};
 
 use crate::{
-    package::{MarmotPackage},
+    package::MarmotPackage,
     parser::{AssetType, Template},
 };
 
@@ -22,6 +22,13 @@ pub struct RenderContext {
     pub fonts: HashMap<String, RegisteredFont>,
     pub assets: HashMap<String, RegisteredAsset>,
     pub scripts: HashMap<String, String>,
+    pub script_plan: Vec<ScriptPlanEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptPlanEntry {
+    pub frame_index: u32,
+    pub frame_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,10 +256,26 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         scripts.insert(frame_id, source);
     }
 
+    let drawn_indices: HashSet<u32> = template.draw_frames.iter().map(|f| f.index).collect();
+    let mut script_plan = Vec::new();
+
+    for frame in &template.frames {
+        if !drawn_indices.contains(&frame.index) {
+            continue;
+        }
+        if scripts.contains_key(&frame.id) {
+            script_plan.push(ScriptPlanEntry {
+                frame_index: frame.index,
+                frame_id: frame.id.clone(),
+            });
+        }
+    }
+
     Ok(RenderContext {
         fonts,
         assets,
         scripts,
+        script_plan,
     })
 }
 

@@ -207,7 +207,10 @@ fn lexes_escaped_characters_in_double_quoted_string() {
     let mut lexer = Lexer::new("\"line\\ncol\\tend\"");
     let tokens = lexer.tokenize().unwrap();
 
-    assert_eq!(tokens[0].kind, TokenKind::String("line\ncol\tend".to_string()));
+    assert_eq!(
+        tokens[0].kind,
+        TokenKind::String("line\ncol\tend".to_string())
+    );
 }
 
 #[test]

@@ -1,4 +1,5 @@
-#[cfg(test)] mod test;
+#[cfg(test)]
+mod test;
 
 use std::{iter::Peekable, str::Chars};
 

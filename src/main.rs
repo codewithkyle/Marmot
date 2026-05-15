@@ -3,8 +3,8 @@ mod package;
 mod parser;
 mod renderer;
 mod resources;
-mod validator;
 mod scripting;
+mod validator;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -219,6 +219,8 @@ struct BatchJob {
 enum BatchResult {
     Success {
         render_time: Duration,
+        script_time: Duration,
+        draw_time: Duration,
         warnings: RenderWarnings,
         line_no: usize,
         output_path: PathBuf,
@@ -338,11 +340,15 @@ fn batch(args: BatchArgs) -> Result<()> {
     let mut failed = 0usize;
     let mut completed = 0usize;
     let mut render_times = Vec::with_capacity(dispatched);
+    let mut script_times = Vec::with_capacity(dispatched);
+    let mut draw_times = Vec::with_capacity(dispatched);
 
     while completed < dispatched {
         match result_rx.recv() {
             Ok(BatchResult::Success {
                 render_time,
+                script_time,
+                draw_time,
                 warnings,
                 line_no,
                 output_path,
@@ -350,6 +356,8 @@ fn batch(args: BatchArgs) -> Result<()> {
                 success += 1;
                 completed += 1;
                 render_times.push(render_time);
+                script_times.push(script_time);
+                draw_times.push(draw_time);
                 for frame_idx in warnings.empty_value_frames {
                     eprintln!(
                         "warning: line {} ({}): frame {} has empty value",
@@ -397,6 +405,8 @@ fn batch(args: BatchArgs) -> Result<()> {
 
     if args.enable_timings {
         let render_stats = summarize_render_times(&render_times);
+        let script_stats = summarize_render_times(&script_times);
+        let draw_stats = summarize_render_times(&draw_times);
 
         eprintln!("timings:");
         eprintln!("    prep:    {}", format_duration(prep));
@@ -411,6 +421,16 @@ fn batch(args: BatchArgs) -> Result<()> {
             eprintln!("    render p95:   {}", format_duration(stats.p95));
             eprintln!("    render p99:   {}", format_duration(stats.p99));
             eprintln!("    render p99.9: {}", format_duration(stats.p999));
+        }
+        if let Some(stats) = script_stats {
+            eprintln!("    script avg:   {}", format_duration(stats.avg));
+            eprintln!("    script min:   {}", format_duration(stats.min));
+            eprintln!("    script max:   {}", format_duration(stats.max));
+        }
+        if let Some(stats) = draw_stats {
+            eprintln!("    draw avg:     {}", format_duration(stats.avg));
+            eprintln!("    draw min:     {}", format_duration(stats.min));
+            eprintln!("    draw max:     {}", format_duration(stats.max));
         }
     }
 
@@ -474,6 +494,8 @@ fn render(args: RenderArgs) -> Result<()> {
         eprintln!("timings:");
         eprintln!("    prep:    {}", format_duration(prep));
         eprintln!("    render:  {}", format_duration(render));
+        eprintln!("    script:  {}", format_duration(outcome.script_time));
+        eprintln!("    draw:    {}", format_duration(outcome.draw_time));
         eprintln!("    total:   {}", format_duration(total));
     }
 
@@ -589,8 +611,8 @@ fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
         .unwrap_or_default()
         .map(PathBuf::from)
         .collect();
-    let scripts: Vec<PathBuf> = matches.
-        get_many::<String>("script")
+    let scripts: Vec<PathBuf> = matches
+        .get_many::<String>("script")
         .unwrap_or_default()
         .map(PathBuf::from)
         .collect();
@@ -828,6 +850,8 @@ fn process_batch_line(
     ) {
         Ok(outcome) => BatchResult::Success {
             render_time: render_start.elapsed(),
+            script_time: outcome.script_time,
+            draw_time: outcome.draw_time,
             warnings: outcome.warnings,
             output_path: output_path.clone(),
             line_no,

@@ -1293,7 +1293,13 @@ end
     let mut parser = Parser::new(tokens);
     let err = parser.parse_template().unwrap_err();
 
-    assert_eq!(err, ParseError::UnpaintedPath { line: 11, column: 3 });
+    assert_eq!(
+        err,
+        ParseError::UnpaintedPath {
+            line: 11,
+            column: 3
+        }
+    );
 }
 
 #[test]
@@ -1643,9 +1649,7 @@ end
     assert_eq!(
         template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
-            text: TextValue::TitleCase(Box::new(TextValue::Literal(
-                "hELLo wORLd".to_string(),
-            ))),
+            text: TextValue::TitleCase(Box::new(TextValue::Literal("hELLo wORLd".to_string(),))),
             x: NumberValue::Literal(0.0),
             y: NumberValue::Literal(0.0),
             width: NumberValue::Literal(100.0),
@@ -1678,9 +1682,7 @@ end
     assert_eq!(
         template.draw_frames[0].ops,
         vec![DrawOp::TextBox {
-            text: TextValue::Capitalize(Box::new(TextValue::Literal(
-                "hELLo wORLd".to_string(),
-            ))),
+            text: TextValue::Capitalize(Box::new(TextValue::Literal("hELLo wORLd".to_string(),))),
             x: NumberValue::Literal(0.0),
             y: NumberValue::Literal(0.0),
             width: NumberValue::Literal(100.0),

@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use super::*;
 use crate::{
     parser::{DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page},
-    resources::RegisteredAsset,
+    resources::{RegisteredAsset, ScriptPlanEntry},
 };
 use serde_json::Value;
 
@@ -21,15 +21,46 @@ fn as_draw_frames(draw_ops: &[DrawOp]) -> Vec<FrameDrawBlock> {
     }]
 }
 
+fn empty_render_context() -> RenderContext {
+    RenderContext {
+        fonts: HashMap::new(),
+        assets: HashMap::new(),
+        scripts: HashMap::new(),
+        script_plan: Vec::new(),
+    }
+}
+
+fn render_context_with_assets(assets: HashMap<String, RegisteredAsset>) -> RenderContext {
+    RenderContext {
+        fonts: HashMap::new(),
+        assets,
+        scripts: HashMap::new(),
+        script_plan: Vec::new(),
+    }
+}
+
+fn scripted_context_for_default_frame(scripts: HashMap<String, String>) -> RenderContext {
+    let mut script_plan = Vec::new();
+    if scripts.contains_key("FRAME_1") {
+        script_plan.push(ScriptPlanEntry {
+            frame_index: 1,
+            frame_id: "FRAME_1".to_string(),
+        });
+    }
+
+    RenderContext {
+        fonts: HashMap::new(),
+        assets: HashMap::new(),
+        scripts,
+        script_plan,
+    }
+}
+
 fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Result<(), RenderError> {
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 256, 256)?;
     let ctx = cairo::Context::new(&surface)?;
     let mut cache = RenderCache::default();
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
+    let render_context = empty_render_context();
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
     let frame_state = build_initial_frame_state(&frames);
@@ -67,8 +98,16 @@ fn render_pdf_with_cache_for_test(
 ) -> Result<(), RenderError> {
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf_with_cache(page, &frames, &draw_frames, output_path, data, context, cache)
-        .map(|_| ())
+    render_pdf_with_cache(
+        page,
+        &frames,
+        &draw_frames,
+        output_path,
+        data,
+        context,
+        cache,
+    )
+    .map(|_| ())
 }
 
 #[test]
@@ -201,11 +240,7 @@ fn renders_basic_pdf() {
 
     let output_path = std::env::temp_dir().join("marmot_basic_render_test.pdf");
 
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
+    let render_context = empty_render_context();
 
     render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
@@ -427,11 +462,7 @@ fn renders_static_text_pdf() {
 
     let output_path = std::env::temp_dir().join("marmot_text_render_test.pdf");
 
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
+    let render_context = empty_render_context();
 
     render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 
@@ -453,8 +484,7 @@ fn resolves_declared_font_as_registered_packaged_font() {
 
     let context = RenderContext {
         fonts,
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
+        ..empty_render_context()
     };
 
     let font = resolve_current_font(&context, "helvetica_bold");
@@ -470,11 +500,7 @@ fn resolves_declared_font_as_registered_packaged_font() {
 
 #[test]
 fn resolves_unknown_font_as_system_font() {
-    let context = RenderContext {
-        fonts: HashMap::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
+    let context = empty_render_context();
 
     let font = resolve_current_font(&context, "Sans");
 
@@ -689,14 +715,10 @@ fn returns_cairo_error_for_invalid_output_path() {
     };
     let draw_ops = vec![];
     let output_path = PathBuf::from("/definitely/missing/path/marmot-render-test.pdf");
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
+    let render_context = empty_render_context();
 
-    let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
-        .unwrap_err();
+    let err =
+        render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
 
     assert!(matches!(err, RenderError::Cairo(_)));
 }
@@ -734,13 +756,9 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
         height: NumberValue::Literal(50.0),
     }];
     let output_path = std::env::temp_dir().join("marmot_missing_image_alias_test.pdf");
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets: HashMap::<String, RegisteredAsset>::new(),
-        scripts: HashMap::new(),
-    };
-    let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
-        .unwrap_err();
+    let render_context = empty_render_context();
+    let err =
+        render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
     assert!(matches!(
         err,
         RenderError::MissingAssetAlias { alias } if alias == "missing_logo"
@@ -774,11 +792,7 @@ fn renders_pdf_with_registered_image_asset() {
             }),
         },
     );
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let render_context = render_context_with_assets(assets);
     let page = Page {
         width: 120.0,
         height: 120.0,
@@ -826,11 +840,7 @@ fn reuses_scaled_surface_for_same_asset_geometry_and_fit() {
         },
     );
 
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let render_context = render_context_with_assets(assets);
 
     let page = Page {
         width: 120.0,
@@ -854,10 +864,24 @@ fn reuses_scaled_surface_for_same_asset_geometry_and_fit() {
     let output_a = dir.path().join("a.pdf");
     let output_b = dir.path().join("b.pdf");
 
-    render_pdf_with_cache_for_test(&page, &draw_ops, &output_a, None, &render_context, &mut cache)
-        .unwrap();
-    render_pdf_with_cache_for_test(&page, &draw_ops, &output_b, None, &render_context, &mut cache)
-        .unwrap();
+    render_pdf_with_cache_for_test(
+        &page,
+        &draw_ops,
+        &output_a,
+        None,
+        &render_context,
+        &mut cache,
+    )
+    .unwrap();
+    render_pdf_with_cache_for_test(
+        &page,
+        &draw_ops,
+        &output_b,
+        None,
+        &render_context,
+        &mut cache,
+    )
+    .unwrap();
 
     assert_eq!(cache.image_surfaces.len(), 1);
     assert_eq!(cache.scaled_image_surfaces.len(), 1);
@@ -892,11 +916,7 @@ fn creates_distinct_scaled_surfaces_for_distinct_geometry() {
         },
     );
 
-    let render_context = RenderContext {
-        fonts: HashMap::<String, RegisteredFont>::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let render_context = render_context_with_assets(assets);
 
     let page = Page {
         width: 120.0,
@@ -933,10 +953,24 @@ fn creates_distinct_scaled_surfaces_for_distinct_geometry() {
         },
     ];
 
-    render_pdf_with_cache_for_test(&page, &draw_ops_a, &output_a, None, &render_context, &mut cache)
-        .unwrap();
-    render_pdf_with_cache_for_test(&page, &draw_ops_b, &output_b, None, &render_context, &mut cache)
-        .unwrap();
+    render_pdf_with_cache_for_test(
+        &page,
+        &draw_ops_a,
+        &output_a,
+        None,
+        &render_context,
+        &mut cache,
+    )
+    .unwrap();
+    render_pdf_with_cache_for_test(
+        &page,
+        &draw_ops_b,
+        &output_b,
+        None,
+        &render_context,
+        &mut cache,
+    )
+    .unwrap();
 
     assert_eq!(cache.image_surfaces.len(), 1);
     assert_eq!(cache.scaled_image_surfaces.len(), 2);
@@ -975,6 +1009,7 @@ fn errors_when_registered_image_geometry_is_invalid() {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
         scripts: HashMap::new(),
+        script_plan: Vec::new(),
     };
 
     let page = Page {
@@ -1527,11 +1562,7 @@ fn caches_scaled_surface_once_for_repeated_same_geometry() {
             }),
         },
     );
-    let context = RenderContext {
-        fonts: HashMap::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let context = render_context_with_assets(assets);
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
@@ -1588,11 +1619,7 @@ fn scaled_cache_dimensions_match_expected_oversample_size() {
             }),
         },
     );
-    let context = RenderContext {
-        fonts: HashMap::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let context = render_context_with_assets(assets);
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
@@ -1650,19 +1677,251 @@ fn errors_when_image_geometry_is_invalid() {
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64).unwrap();
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
-    let context = RenderContext {
-        fonts: HashMap::new(),
-        assets,
-        scripts: HashMap::new(),
-    };
+    let context = render_context_with_assets(assets);
     let frames = default_frames();
     let draw_frames = as_draw_frames(&draw_ops);
     let frame_state = build_initial_frame_state(&frames);
-    let err = execute_draw(&ctx, &draw_frames, &frame_state, None, &context, &mut cache)
-        .unwrap_err();
+    let err =
+        execute_draw(&ctx, &draw_frames, &frame_state, None, &context, &mut cache).unwrap_err();
     assert!(matches!(
         err,
         RenderError::InvalidImageGeometry { width, height, .. }
             if width == 0.0 && height == 10.0
     ));
+}
+
+#[test]
+fn script_visibility_false_skips_frame_draw() {
+    use crate::parser::{BarcodeSymbology, TextValue};
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC".to_string()),
+        symbology: BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(60.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_visibility_skip_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "frame.visible = false".to_string());
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
+fn script_value_override_applies_to_textbox() {
+    use crate::parser::TextValue;
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Slot("product_name".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(100.0),
+        height: NumberValue::Literal(40.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_text_override_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert(
+        "FRAME_1".to_string(),
+        "frame.value = \"OVERRIDE\"".to_string(),
+    );
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
+fn script_value_override_applies_to_image() {
+    use crate::parser::{AssetType, TextValue};
+    use crate::resources::RegisteredImageInfo;
+    use image::{ImageFormat, Rgba, RgbaImage};
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("logo.png");
+    let img = RgbaImage::from_pixel(4, 4, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+
+    let mut assets = HashMap::new();
+    assets.insert(
+        "logo".to_string(),
+        RegisteredAsset {
+            path: image_path.clone(),
+            name: "logo".to_string(),
+            ty: AssetType::Image,
+            byte_len: std::fs::metadata(&image_path).unwrap().len(),
+            image: Some(RegisteredImageInfo {
+                format: "png".to_string(),
+                width: 4,
+                height: 4,
+            }),
+        },
+    );
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![DrawOp::Image {
+        asset: TextValue::Slot("asset_name".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(60.0),
+        height: NumberValue::Literal(40.0),
+    }];
+    let output_path = dir.path().join("marmot_script_image_override_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "frame.value = \"logo\"".to_string());
+
+    let mut render_context = scripted_context_for_default_frame(scripts);
+    render_context.assets = assets;
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+}
+
+#[test]
+fn script_value_override_applies_to_barcode() {
+    use crate::parser::{BarcodeSymbology, TextValue};
+
+    let page = Page {
+        width: 120.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Slot("barcode_value".to_string()),
+        symbology: BarcodeSymbology::Code39,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_barcode_override_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert(
+        "FRAME_1".to_string(),
+        "frame.value = \"ABC123\"".to_string(),
+    );
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
+fn invalid_script_visible_assignment_fails_render() {
+    use crate::parser::TextValue;
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Literal("ok".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_invalid_visible_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "frame.visible = \"no\"".to_string());
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    let err =
+        render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+
+    assert!(matches!(err, RenderError::ScriptRuntime { .. }));
+    let msg = format!("{err:?}");
+    assert!(msg.contains("frame.visible"));
+}
+
+#[test]
+fn invalid_script_value_assignment_fails_render() {
+    use crate::parser::TextValue;
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Literal("ok".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_invalid_value_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "frame.value = 123".to_string());
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    let err =
+        render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+
+    assert!(matches!(err, RenderError::ScriptRuntime { .. }));
+    let msg = format!("{err:?}");
+    assert!(msg.contains("frame.value"));
+}
+
+#[test]
+fn script_runtime_error_fails_render() {
+    use crate::parser::TextValue;
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::TextBox {
+        text: TextValue::Literal("ok".to_string()),
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(80.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_script_runtime_error_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "error(\"boom\")".to_string());
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    let err =
+        render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap_err();
+
+    assert!(matches!(err, RenderError::ScriptRuntime { .. }));
+    let msg = format!("{err:?}");
+    assert!(msg.contains("boom"));
 }

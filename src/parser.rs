@@ -747,7 +747,9 @@ impl Parser {
                 });
             }
 
-            if let Some(op) = self.parse_frame_draw_token(slots, &mut stack, &mut current_path_kind)? {
+            if let Some(op) =
+                self.parse_frame_draw_token(slots, &mut stack, &mut current_path_kind)?
+            {
                 ops.push(op);
             }
         }

@@ -4,6 +4,7 @@ mod test;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use crate::resources::{RegisteredFont, RenderContext};
@@ -29,6 +30,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub struct RenderOutcome {
     pub warnings: RenderWarnings,
+    pub script_time: Duration,
+    pub draw_time: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,10 +60,20 @@ struct ScaledImageKey {
 const IMAGE_RESAMPLE_FILTER: cairo::Filter = cairo::Filter::Good;
 const IMAGE_CACHE_SCALE: f64 = 3.0;
 
-#[derive(Default)]
 pub struct RenderCache {
     image_surfaces: HashMap<String, cairo::ImageSurface>,
     scaled_image_surfaces: HashMap<ScaledImageKey, cairo::ImageSurface>,
+    script_runtime: LuaRuntime,
+}
+
+impl Default for RenderCache {
+    fn default() -> Self {
+        Self {
+            image_surfaces: HashMap::new(),
+            scaled_image_surfaces: HashMap::new(),
+            script_runtime: LuaRuntime::new(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -281,26 +294,37 @@ impl Default for RenderState {
 }
 
 fn run_frame_scripts(
-    frames: &[FrameDecl],
     frame_state: &mut HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
     context: &RenderContext,
+    runtime: &mut LuaRuntime,
 ) -> Result<(), RenderError> {
-    for frame in frames {
-        let Some(source) = context.scripts.get(&frame.id) else {
-            continue;
-        };
+    if context.scripts.is_empty() {
+        return Ok(());
+    }
 
-        let mut runtime = LuaRuntime::new();
-        runtime.load(source.clone(), data);
-
-        let updated = runtime.exec().map_err(|err| RenderError::ScriptRuntime {
-            frame_index: frame.index,
-            frame_id: frame.id.clone(),
+    let prepared_data = runtime
+        .build_data_api(data)
+        .map_err(|err| RenderError::ScriptRuntime {
+            frame_index: 0,
+            frame_id: "<data>".to_string(),
             message: err.to_string(),
         })?;
 
-        frame_state.insert(frame.index, updated);
+    for planned in &context.script_plan {
+        let Some(source) = context.scripts.get(&planned.frame_id) else {
+            continue;
+        };
+
+        let updated = runtime
+            .exec_with_data(&planned.frame_id, source, &prepared_data)
+            .map_err(|err| RenderError::ScriptRuntime {
+                frame_index: planned.frame_index,
+                frame_id: planned.frame_id.clone(),
+                message: err.to_string(),
+            })?;
+
+        frame_state.insert(planned.frame_index, updated);
     }
     Ok(())
 }
@@ -1326,7 +1350,7 @@ fn execute_draw(
                 } => {
                     let value = match runtime.and_then(|r| r.value_override.as_ref()) {
                         Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(value, data)?
+                        _ => eval_text(value, data)?,
                     };
                     let x = eval_number(x, data)?;
                     let y = eval_number(y, data)?;
@@ -1483,7 +1507,7 @@ fn execute_draw(
                 } => {
                     let value = match runtime.and_then(|r| r.value_override.as_ref()) {
                         Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(asset, data)?
+                        _ => eval_text(asset, data)?,
                     };
                     render_image(
                         ctx,
@@ -1506,7 +1530,7 @@ fn execute_draw(
                 } => {
                     let value = match runtime.and_then(|r| r.value_override.as_ref()) {
                         Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(text, data)?
+                        _ => eval_text(text, data)?,
                     };
                     render_textbox(
                         &layout,
@@ -1538,12 +1562,20 @@ pub fn render_pdf_with_cache(
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
     let mut frame_state = build_initial_frame_state(frames);
-    run_frame_scripts(frames, &mut frame_state, data, context)?;
+    let script_start = Instant::now();
+    run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
+    let script_time = script_start.elapsed();
 
+    let draw_start = Instant::now();
     let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
+    let draw_time = draw_start.elapsed();
     surface.finish();
 
-    Ok(RenderOutcome { warnings })
+    Ok(RenderOutcome {
+        warnings,
+        script_time,
+        draw_time,
+    })
 }
 
 pub fn render_pdf(
