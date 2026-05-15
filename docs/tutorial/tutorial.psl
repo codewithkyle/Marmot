@@ -18,6 +18,7 @@ end
 
 assets begin
   logo image "assets/sprout-basket.png"
+  save_5 image "assets/save-5.png"
 end
 
 frames begin
