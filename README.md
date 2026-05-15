@@ -16,6 +16,7 @@ The initial goal is to render label-sized PDFs from Marmot templates and JSON/JS
 
 - [CLI usage](docs/cli.md)
 - [PSL language reference](docs/psl.md)
+- [Scripting guide](docs/scripting.md)
 - [Future ideas](docs/drafts)
 - [Print post-processing](docs/print-postprocessing.md)
 

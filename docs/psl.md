@@ -232,6 +232,30 @@ Rules:
 - Referenced frame index must exist in the `frames` block.
 - Each frame section has its own stack/path validation.
 
+## Scripting Integration
+
+PSL itself does not embed Lua syntax. Scripts are external package files.
+
+- Script path: `scripts/<frame_id>.lua` inside `.marmot` package.
+- `<frame_id>` must match frame id declared in `frames begin ... end`.
+- Missing script for a frame is valid (no-op).
+- Unknown script file (no matching frame id) fails context build.
+
+At render time, script can mutate per-frame runtime properties:
+
+- `frame.visible: boolean`
+- `frame.value: string | nil`
+
+Override behavior:
+
+- Non-empty `frame.value` overrides value-bearing ops in that frame:
+  - `textbox` text
+  - `image` asset alias
+  - `barcode` payload
+- `frame.value = nil` or empty string falls back to normal PSL draw-op evaluation.
+
+For full API and runtime details, see [`docs/scripting.md`](docs/scripting.md).
+
 ## Frame Blocks in `draw`
 
 `draw` is frame-scoped. This means all rendering operators must appear inside a frame block.

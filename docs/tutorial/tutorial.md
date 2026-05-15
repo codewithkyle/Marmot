@@ -29,20 +29,26 @@ After running the `pack` command above you can batch render 10,000 PDFs using th
 cargo run -- batch ./out/tutorial.marmot ./docs/tutorial/tutorial-10k.jsonl --output-dir ./out --output-name "{sku}.pdf" --timings
 ```
 
-Example timings output:
+Example timings output (machine-dependent):
 
 ```
 batch: jobs=16
 batch complete: success=10000, failed=0, skipped=0
 timings:
-    prep:    40.366 ms
-    process: 24.043 s
-    total:   24.083 s
-    render avg:   38.360 ms
-    render min:   23.355 ms
-    render max:   373.105 ms
-    render p90:   43.069 ms
-    render p95:   50.459 ms
-    render p99:   75.215 ms
-    render p99.9: 348.927 ms
+    prep:    44.869 ms
+    process: 36.447 s
+    total:   36.492 s
+    render avg:   58.170 ms
+    render min:   37.399 ms
+    render max:   411.573 ms
+    render p90:   75.744 ms
+    render p95:   90.661 ms
+    render p99:   109.099 ms
+    render p99.9: 387.530 ms
+    script avg:   0.083 ms
+    script min:   0.044 ms
+    script max:   4.088 ms
+    draw avg:     11.026 ms
+    draw min:     6.875 ms
+    draw max:     370.979 ms
 ```

@@ -88,9 +88,10 @@ Behavior:
 - Loads and parses `template.psl` from package.
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
+- Loads package frame scripts from `scripts/*.lua` when present.
 - Renders to PDF at `--output`.
 - Prints non-fatal render warnings to stderr (for example empty frame values).
-- With `--timings`, prints elapsed time for `prep`, `render`, and `total`.
+- With `--timings`, prints elapsed time for `prep`, `render`, `script`, `draw`, and `total`.
 
 Notes:
 
@@ -159,6 +160,35 @@ Batch timing output (`--timings`) includes:
 
 - `prep`, `process`, and `total` wall-clock stages.
 - Render latency stats across rendered records: `avg`, `min`, `max`, `p90`, `p95`, `p99`, `p99.9`.
+- Script and draw stats across rendered records: `script avg/min/max`, `draw avg/min/max`.
+
+## Scripting Runtime
+
+Scripting is frame-scoped and package-based.
+
+- Script files are loaded from `scripts/<frame_id>.lua`.
+- `<frame_id>` must match a frame id declared in `frames begin ... end`.
+- Missing script for a frame is valid (no-op).
+- Unknown script file (no matching frame id) fails context build.
+
+Lua globals exposed at script runtime:
+
+- `data.getSlot("name")`
+  - reads top-level JSON field from render/batch record
+  - returns Lua `string`, `number`, `boolean`, or `nil`
+  - arrays/objects fail hard with runtime error
+- `frame.visible`
+  - strict boolean
+  - invalid assignment fails render hard
+- `frame.value`
+  - strict `string | nil`
+  - when non-empty string: overrides value-bearing ops in that frame (`textbox`, `image`, `barcode`)
+  - when `nil` or empty string: renderer falls back to normal PSL evaluation
+
+Error behavior:
+
+- Script compile/runtime/type errors fail render immediately.
+- Script errors include frame id/index context.
 
 Output name template notes:
 
@@ -234,6 +264,16 @@ Common validation behavior:
 - Cause: duplicated font alias in template or repeated file names during packaging.
 - Fix: make aliases and package filenames unique.
 
+## `unknown script file` or `invalid script file extension`
+
+- Cause: file in package `scripts/` does not map to declared frame id, or script file is not `.lua`.
+- Fix: rename script to `<frame_id>.lua` and keep only Lua files in `scripts/`.
+
+## `ScriptRuntime` / script failed for frame
+
+- Cause: Lua runtime error or invalid assignment (`frame.visible`, `frame.value`).
+- Fix: check script line and types; ensure `frame.visible` is boolean and `frame.value` is string or `nil`.
+
 ## `record missing field '<name>' required by output template`
 
 - Cause: `--output-name` references a JSON field that is missing in a record.
@@ -251,3 +291,4 @@ Common validation behavior:
 - Output format: PDF
 - Packaged fonts: supported
 - Packaged image assets + draw-time image operator: supported
+- Packaged frame scripting (`scripts/*.lua`): supported
