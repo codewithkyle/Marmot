@@ -4,6 +4,7 @@ mod parser;
 mod renderer;
 mod resources;
 mod validator;
+mod scripting;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Arg, ArgAction, ArgMatches, Command};

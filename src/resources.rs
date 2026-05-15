@@ -220,7 +220,7 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         let ext = path.extension().and_then(|s| s.to_str());
         if ext != Some("lua") {
             bail!(
-                "invalid scsript file extension (expected .lua): {}",
+                "invalid script file extension (expected .lua): {}",
                 path.display()
             );
         }

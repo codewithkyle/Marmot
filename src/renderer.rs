@@ -6,8 +6,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::parser::{AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page, TextValue};
 use crate::resources::{RegisteredFont, RenderContext};
+use crate::{
+    parser::{
+        AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page,
+        TextValue,
+    },
+    scripting::LuaRuntime,
+};
 use barcoders::sym::{
     code39::Code39,
     code128::Code128,
@@ -25,33 +31,18 @@ pub struct RenderOutcome {
     pub warnings: RenderWarnings,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
-enum FrameValueState {
-    Unset,
-    Unused,
-    Set(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct FrameRuntimeState {
-    value: FrameValueState,
-    visible: bool,
+pub struct FrameRuntimeState {
+    pub visible: bool,
+    pub value_override: Option<String>,
 }
 
 #[allow(dead_code)]
 impl FrameRuntimeState {
-    pub fn unused_default() -> Self {
+    pub fn default_visible() -> Self {
         Self {
             visible: true,
-            value: FrameValueState::Unused,
-        }
-    }
-
-    pub fn unset_default() -> Self {
-        Self {
-            visible: false,
-            value: FrameValueState::Unset,
+            value_override: None,
         }
     }
 }
@@ -92,6 +83,11 @@ pub struct RenderWarnings {
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
+    ScriptRuntime {
+        frame_index: u32,
+        frame_id: String,
+        message: String,
+    },
     MissingSlot {
         slot: String,
     },
@@ -282,6 +278,31 @@ impl Default for RenderState {
             image_fit: ImageFit::Contain,
         }
     }
+}
+
+fn run_frame_scripts(
+    frames: &[FrameDecl],
+    frame_state: &mut HashMap<u32, FrameRuntimeState>,
+    data: Option<&Value>,
+    context: &RenderContext,
+) -> Result<(), RenderError> {
+    for frame in frames {
+        let Some(source) = context.scripts.get(&frame.id) else {
+            continue;
+        };
+
+        let mut runtime = LuaRuntime::new();
+        runtime.load(source.clone(), data);
+
+        let updated = runtime.exec().map_err(|err| RenderError::ScriptRuntime {
+            frame_index: frame.index,
+            frame_id: frame.id.clone(),
+            message: err.to_string(),
+        })?;
+
+        frame_state.insert(frame.index, updated);
+    }
+    Ok(())
 }
 
 fn to_title_case(input: &str) -> String {
@@ -1175,7 +1196,8 @@ fn render_image(
 
     let cache_w = draw_w * IMAGE_CACHE_SCALE;
     let cache_h = draw_h * IMAGE_CACHE_SCALE;
-    let scaled_surface = get_or_load_scaled_image_surface(cache, asset, &registered.path, cache_w, cache_h)?;
+    let scaled_surface =
+        get_or_load_scaled_image_surface(cache, asset, &registered.path, cache_w, cache_h)?;
 
     ctx.save()?;
     ctx.rectangle(x, y, width, height);
@@ -1243,18 +1265,13 @@ fn should_render_frame(state: Option<&FrameRuntimeState>) -> bool {
     let Some(state) = state else {
         return true;
     };
-    if !state.visible {
-        return false;
-    }
-    !matches!(state.value, FrameValueState::Unset)
+    state.visible
 }
 
-fn build_initial_frame_state(
-    frames: &[FrameDecl],
-) -> HashMap<u32, FrameRuntimeState> {
+fn build_initial_frame_state(frames: &[FrameDecl]) -> HashMap<u32, FrameRuntimeState> {
     let mut out = HashMap::new();
     for frame in frames {
-        out.insert(frame.index, FrameRuntimeState::unused_default());
+        out.insert(frame.index, FrameRuntimeState::default_visible());
     }
     out
 }
@@ -1265,9 +1282,10 @@ fn warn_if_empty_set_value(
     warnings: &mut RenderWarnings,
 ) {
     if let Some(FrameRuntimeState {
-        value: FrameValueState::Set(v),
+        value_override: Some(v),
         ..
-    }) = runtime {
+    }) = runtime
+    {
         if v.is_empty() {
             warnings.empty_value_frames.push(frame_index)
         }
@@ -1306,7 +1324,10 @@ fn execute_draw(
                     width,
                     height,
                 } => {
-                    let value = eval_text(value, data)?;
+                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                        Some(v) if !v.is_empty() => v.clone(),
+                        _ => eval_text(value, data)?
+                    };
                     let x = eval_number(x, data)?;
                     let y = eval_number(y, data)?;
                     let width = eval_number(width, data)?;
@@ -1460,12 +1481,15 @@ fn execute_draw(
                     width,
                     height,
                 } => {
-                    let asset = eval_text(asset, data)?;
+                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                        Some(v) if !v.is_empty() => v.clone(),
+                        _ => eval_text(asset, data)?
+                    };
                     render_image(
                         ctx,
                         context,
                         cache,
-                        &asset,
+                        &value,
                         state.image_fit,
                         eval_number(x, data)?,
                         eval_number(y, data)?,
@@ -1480,12 +1504,15 @@ fn execute_draw(
                     width,
                     height,
                 } => {
-                    let text = eval_text(text, data)?;
+                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                        Some(v) if !v.is_empty() => v.clone(),
+                        _ => eval_text(text, data)?
+                    };
                     render_textbox(
                         &layout,
                         ctx,
                         &state,
-                        &text,
+                        &value,
                         eval_number(x, data)?,
                         eval_number(y, data)?,
                         eval_number(width, data)?,
@@ -1510,7 +1537,8 @@ pub fn render_pdf_with_cache(
 ) -> Result<RenderOutcome, RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
-    let frame_state = build_initial_frame_state(frames);
+    let mut frame_state = build_initial_frame_state(frames);
+    run_frame_scripts(frames, &mut frame_state, data, context)?;
 
     let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
     surface.finish();
@@ -1527,5 +1555,13 @@ pub fn render_pdf(
     context: &RenderContext,
 ) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
-    return render_pdf_with_cache(page, frames, draw_frames, output_path, data, context, &mut cache)
+    return render_pdf_with_cache(
+        page,
+        frames,
+        draw_frames,
+        output_path,
+        data,
+        context,
+        &mut cache,
+    );
 }
