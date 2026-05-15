@@ -44,6 +44,7 @@ struct PackArgs {
     output_dir: Option<PathBuf>,
     assets: Vec<PathBuf>,
     fonts: Vec<PathBuf>,
+    scripts: Vec<PathBuf>,
 }
 
 struct BatchArgs {
@@ -101,6 +102,14 @@ fn main() -> Result<()> {
                         .value_name("PATH")
                         .action(ArgAction::Append)
                         .help("Add a font file to the package"),
+                )
+                .arg(
+                    Arg::new("script")
+                        .short('s')
+                        .long("script")
+                        .value_name("PATH")
+                        .action(ArgAction::Append)
+                        .help("Add a lua script file to the package")
                 )
                 .arg(Arg::new("output").short('o').long("output-dir")),
         )
@@ -191,6 +200,7 @@ fn pack(args: PackArgs) -> Result<()> {
         output_file: output_file.clone(),
         assets: args.assets,
         fonts: args.fonts,
+        scripts: args.scripts,
     };
 
     create_package(options)?;
@@ -578,6 +588,11 @@ fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
         .unwrap_or_default()
         .map(PathBuf::from)
         .collect();
+    let scripts: Vec<PathBuf> = matches.
+        get_many::<String>("script")
+        .unwrap_or_default()
+        .map(PathBuf::from)
+        .collect();
 
     let args = PackArgs {
         template_file,
@@ -585,6 +600,7 @@ fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
         output_dir,
         fonts,
         assets,
+        scripts,
     };
 
     Ok(args)

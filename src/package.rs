@@ -141,6 +141,7 @@ pub struct PackageBuilderOptions {
     pub output_file: PathBuf,
     pub assets: Vec<PathBuf>,
     pub fonts: Vec<PathBuf>,
+    pub scripts: Vec<PathBuf>,
 }
 
 pub fn create_package(options: PackageBuilderOptions) -> Result<()> {
@@ -174,6 +175,12 @@ pub fn create_package(options: PackageBuilderOptions) -> Result<()> {
         let filename = filename_string(asset)?;
         let archive_path = format!("assets/{filename}");
         add_unique_file(&mut zip, &mut archive_paths, asset, &archive_path)?;
+    }
+
+    for script in &options.scripts {
+        let filename = filename_string(script)?;
+        let archive_path = format!("scripts/{filename}");
+        add_unique_file(&mut zip, &mut archive_paths, script, &archive_path)?;
     }
 
     zip.finish().with_context(|| {
@@ -216,6 +223,10 @@ fn validate_package_build_options(options: &PackageBuilderOptions) -> Result<()>
 
     for asset in &options.assets {
         ensure_file_exists(asset)?;
+    }
+
+    for script in &options.scripts {
+        ensure_file_exists(script)?;
     }
 
     Ok(())
