@@ -26,7 +26,8 @@ frames begin
   3 FRAME_OFFER
   4 FRAME_PRICE
   5 FRAME_LOGO
-  6 FRAME_CODES
+  6 FRAME_BAR_CODES
+  7 FRAME_QR_CODES
 end
 
 draw begin
@@ -92,7 +93,10 @@ draw begin
   frame 6 begin
     % Machine-readable codes
     0 0 0 rgb
-    $(promo_url) qr 355 215 60 60 barcode
     $(sku) c128b 26 240 214 28 barcode
+  end
+
+  frame 7 begin
+    $(promo_url) qr 355 215 60 60 barcode
   end
 end

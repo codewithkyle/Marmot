@@ -4,7 +4,7 @@ mod test;
 use anyhow::{Context, Result, bail};
 use std::{
     collections::HashSet,
-    fs::{File, create_dir_all, read_to_string},
+    fs::{self, File, create_dir_all, read_to_string},
     io,
     path::{Component, Path, PathBuf},
 };
@@ -30,6 +30,24 @@ impl MarmotPackage {
         package.ensure_template_exists()?;
 
         Ok(package)
+    }
+
+    pub fn list_files_under(&self, package_relative_path: &str) -> Result<Vec<String>> {
+        let paths = fs::read_dir(self.root.join(package_relative_path))
+            .with_context(|| format!("failed to read files under: {}", package_relative_path))?;
+
+        let mut files = Vec::new();
+        for entry in paths {
+            let path = entry?.path();
+            if path.is_dir() {
+                // NOTE: let's assume for now we don't allow nested dirs in our package
+                continue;
+            }
+            let filename = filename_string(&path)?;
+            files.push(filename);
+        }
+
+        Ok(files)
     }
 
     pub fn template_path(&self) -> PathBuf {

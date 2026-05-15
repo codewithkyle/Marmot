@@ -28,6 +28,7 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
@@ -203,6 +204,7 @@ fn renders_basic_pdf() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
 
     render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
@@ -428,6 +430,7 @@ fn renders_static_text_pdf() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
 
     render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
@@ -451,6 +454,7 @@ fn resolves_declared_font_as_registered_packaged_font() {
     let context = RenderContext {
         fonts,
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
 
     let font = resolve_current_font(&context, "helvetica_bold");
@@ -469,6 +473,7 @@ fn resolves_unknown_font_as_system_font() {
     let context = RenderContext {
         fonts: HashMap::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
 
     let font = resolve_current_font(&context, "Sans");
@@ -687,6 +692,7 @@ fn returns_cairo_error_for_invalid_output_path() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
 
     let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
@@ -731,6 +737,7 @@ fn errors_when_rendering_image_with_missing_asset_alias() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets: HashMap::<String, RegisteredAsset>::new(),
+        scripts: HashMap::new(),
     };
     let err = render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context)
         .unwrap_err();
@@ -770,6 +777,7 @@ fn renders_pdf_with_registered_image_asset() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
+        scripts: HashMap::new(),
     };
     let page = Page {
         width: 120.0,
@@ -821,6 +829,7 @@ fn reuses_scaled_surface_for_same_asset_geometry_and_fit() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
+        scripts: HashMap::new(),
     };
 
     let page = Page {
@@ -886,6 +895,7 @@ fn creates_distinct_scaled_surfaces_for_distinct_geometry() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
+        scripts: HashMap::new(),
     };
 
     let page = Page {
@@ -964,6 +974,7 @@ fn errors_when_registered_image_geometry_is_invalid() {
     let render_context = RenderContext {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
+        scripts: HashMap::new(),
     };
 
     let page = Page {
@@ -1519,6 +1530,7 @@ fn caches_scaled_surface_once_for_repeated_same_geometry() {
     let context = RenderContext {
         fonts: HashMap::new(),
         assets,
+        scripts: HashMap::new(),
     };
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
     let ctx = cairo::Context::new(&surface).unwrap();
@@ -1579,6 +1591,7 @@ fn scaled_cache_dimensions_match_expected_oversample_size() {
     let context = RenderContext {
         fonts: HashMap::new(),
         assets,
+        scripts: HashMap::new(),
     };
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 300, 300).unwrap();
     let ctx = cairo::Context::new(&surface).unwrap();
@@ -1640,6 +1653,7 @@ fn errors_when_image_geometry_is_invalid() {
     let context = RenderContext {
         fonts: HashMap::new(),
         assets,
+        scripts: HashMap::new(),
     };
     let frames = default_frames();
     let draw_frames = as_draw_frames(&draw_ops);

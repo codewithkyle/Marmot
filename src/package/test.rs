@@ -73,6 +73,7 @@ fn create_package_errors_when_asset_filenames_collide() {
         output_file: output,
         assets: vec![a_logo, b_logo],
         fonts: vec![],
+        scripts: vec![],
     };
 
     let err = create_package(options).unwrap_err().to_string();
@@ -96,6 +97,7 @@ fn creates_and_opens_package_with_resolvable_entries() {
         output_file: output.clone(),
         assets: vec![asset],
         fonts: vec![font],
+        scripts: vec![],
     })
     .unwrap();
 

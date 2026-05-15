@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::Cursor,
     path::{Path, PathBuf},
@@ -10,7 +10,7 @@ use image::{ImageFormat, ImageReader};
 use ttf_parser::{Face, name_id};
 
 use crate::{
-    package::MarmotPackage,
+    package::{MarmotPackage},
     parser::{AssetType, Template},
 };
 
@@ -21,6 +21,7 @@ const MAX_IMAGE_PIXELS: u64 = 40_000_000; // NOTE: 40 MP
 pub struct RenderContext {
     pub fonts: HashMap<String, RegisteredFont>,
     pub assets: HashMap<String, RegisteredAsset>,
+    pub scripts: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,6 +176,7 @@ fn validate_image_asset(name: &str, path: &Path, bytes: &[u8]) -> Result<Registe
 pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Result<RenderContext> {
     let mut fonts = HashMap::new();
     let mut assets = HashMap::new();
+    let mut scripts = HashMap::new();
 
     for font_decl in &template.fonts {
         if fonts.contains_key(&font_decl.name) {
@@ -210,7 +212,48 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         assets.insert(asset_decl.name.clone(), registered);
     }
 
-    Ok(RenderContext { fonts, assets })
+    let frame_ids: HashSet<&str> = template.frames.iter().map(|f| f.id.as_str()).collect();
+
+    let script_files = package.list_files_under("scripts")?;
+    for filename in script_files {
+        let path = package.resolve_path(format!("scripts/{filename}").as_str())?;
+        let ext = path.extension().and_then(|s| s.to_str());
+        if ext != Some("lua") {
+            bail!(
+                "invalid scsript file extension (expected .lua): {}",
+                path.display()
+            );
+        }
+
+        let frame_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow!("invalid script filename: {}", path.display()))?
+            .to_string();
+
+        if !frame_ids.contains(frame_id.as_str()) {
+            bail!(
+                "unknown script file '{}' (no matching frame id '{}')",
+                path.display(),
+                frame_id
+            );
+        }
+
+        if scripts.contains_key(&frame_id) {
+            bail!("duplicate script for frame id: {}", frame_id);
+        }
+
+        let source = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read script source: {}", path.display()))?;
+
+        scripts.insert(frame_id, source);
+    }
+
+    Ok(RenderContext {
+        fonts,
+        assets,
+        scripts,
+    })
 }
 
 fn read_name(face: &Face, id: u16) -> Option<String> {
@@ -392,6 +435,7 @@ mod test {
             output_file: package_file.clone(),
             assets: vec![],
             fonts: vec![],
+            scripts: vec![],
         })
         .unwrap();
 
@@ -415,6 +459,7 @@ mod test {
             output_file: package_file.clone(),
             assets: vec![asset],
             fonts: vec![font],
+            scripts: vec![],
         })
         .unwrap();
 
@@ -453,7 +498,9 @@ mod test {
             },
         ];
 
-        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        let err = build_render_context(&template, &package)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("duplicate font alias: brand"));
     }
 
@@ -475,7 +522,9 @@ mod test {
             },
         ];
 
-        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        let err = build_render_context(&template, &package)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("duplicate asset alias: logo"));
     }
 
@@ -490,7 +539,9 @@ mod test {
             ty: AssetType::Image,
         }];
 
-        let err = build_render_context(&template, &package).unwrap_err().to_string();
+        let err = build_render_context(&template, &package)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("failed to resolve asset alias logo"));
         assert!(err.contains("assets/missing.png"));
     }
