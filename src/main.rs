@@ -32,11 +32,28 @@ struct CheckArgs {
     data_file: PathBuf,
 }
 
+#[derive(Clone)]
+enum OutputType {
+    PDF,
+    PNG,
+}
+
+impl OutputType {
+    pub fn try_from(word: &str) -> Result<Self> {
+        match word.to_lowercase().as_str() {
+            "png" => Ok(Self::PNG),
+            "pdf" => Ok(Self::PDF),
+            _ => Err(anyhow!("invalid output type value: {}", word)),
+        }
+    }
+}
+
 struct RenderArgs {
     package_file: PathBuf,
     data_file: Option<PathBuf>,
     output_file: PathBuf,
     enable_timings: bool,
+    output_type: OutputType,
 }
 
 struct PackArgs {
@@ -56,6 +73,7 @@ struct BatchArgs {
     jobs: usize,
     trust_data: bool,
     enable_timings: bool,
+    output_type: OutputType,
 }
 
 fn main() -> Result<()> {
@@ -77,11 +95,12 @@ fn main() -> Result<()> {
                 .arg(Arg::new("package").required(true))
                 .arg(Arg::new("data"))
                 .arg(Arg::new("output").short('o').long("output").required(true))
+                .arg(Arg::new("output-type").long("output-type").value_name("TYPE").value_parser(["pdf", "png"]).default_value("pdf"))
                 .arg(
                     Arg::new("timings")
                         .long("timings")
                         .action(ArgAction::SetTrue),
-                ),
+                )
         )
         .subcommand(
             Command::new("pack")
@@ -132,6 +151,7 @@ fn main() -> Result<()> {
                         .value_name("TEMPlATE")
                         .help("Filename template with {index} and top-level record fiels, e.g. {sku}.pdf or {sku}-{id}.pdf"),
                 )
+                .arg(Arg::new("output-type").long("output-type").value_name("TYPE").value_parser(["pdf", "png"]).default_value("pdf"))
                 .arg(
                     Arg::new("jobs")
                         .short('j')
@@ -576,6 +596,10 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
     let jobs = *matches.get_one::<usize>("jobs").expect("jobs has default");
     let trust_data = *matches.get_one::<bool>("trust-data").unwrap_or(&false);
     let enable_timings = *matches.get_one::<bool>("timings").unwrap_or(&false);
+    let output_type = matches
+        .get_one::<String>("output-type")
+        .map(|s| OutputType::try_from(s))
+        .unwrap_or(Ok(OutputType::PDF))?;
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -588,6 +612,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         jobs,
         trust_data,
         enable_timings,
+        output_type,
     })
 }
 
@@ -639,6 +664,10 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .get_one::<String>("output")
         .expect("output is required")
         .into();
+    let output_type = matches
+        .get_one::<String>("output-type")
+        .map(|s| OutputType::try_from(s))
+        .unwrap_or(Ok(OutputType::PDF))?;
 
     let enable_timings = matches.get_one::<bool>("timings").unwrap_or(&false);
 
@@ -647,6 +676,7 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         data_file,
         output_file,
         enable_timings: *enable_timings,
+        output_type,
     };
 
     if let Some(data_file) = &args.data_file {
