@@ -558,6 +558,66 @@ fn render_code128(
     Ok(())
 }
 
+fn encode_msi_modules(value: &str) -> Result<Vec<u8>, RenderError> {
+    if value.is_empty() {
+        return Err(RenderError::BarcodeEncode {
+            symbology: "msi".to_string(),
+            data: value.to_string(),
+            message: "msi data must contain at least one digit".to_string(),
+        });
+    }
+
+    let mut modules = Vec::with_capacity(3 + value.len() * 12 + 4);
+    modules.extend_from_slice(&[1, 1, 0]);
+
+    for ch in value.chars() {
+        let Some(digit) = ch.to_digit(10) else {
+            return Err(RenderError::BarcodeEncode {
+                symbology: "msi".to_string(),
+                data: value.to_string(),
+                message: "msi supports digits 0-9 only".to_string(),
+            });
+        };
+
+        for bit_idx in (0..4).rev() {
+            let bit = (digit >> bit_idx) & 1;
+            if bit == 0 {
+                modules.extend_from_slice(&[1, 0, 0]);
+            } else {
+                modules.extend_from_slice(&[1, 1, 0]);
+            }
+        }
+    }
+
+    modules.extend_from_slice(&[1, 0, 0, 1]);
+    Ok(modules)
+}
+
+fn render_msi(
+    ctx: &Context,
+    value: &str,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), RenderError> {
+    if width <= 0.0 || height <= 0.0 {
+        return Err(RenderError::InvalidBarcodeGeometry { width, height });
+    }
+    let modules = encode_msi_modules(value)?;
+    render_barcode(
+        ctx,
+        x,
+        y,
+        width,
+        height,
+        modules,
+        "msi".to_string(),
+        value.to_string(),
+    )?;
+    Ok(())
+}
+
 fn encode_upca_modules(value: &str) -> Result<Vec<u8>, RenderError> {
     let code = UPCA::new(value).map_err(|err| RenderError::BarcodeEncode {
         symbology: "upca".to_string(),
@@ -1598,6 +1658,9 @@ fn execute_draw(
                         }
                         BarcodeSymbology::EAN8 => {
                             render_ean8(ctx, &value, x, y, width, height)?;
+                        }
+                        BarcodeSymbology::MSI => {
+                            render_msi(ctx, &value, x, y, width, height)?;
                         }
                         BarcodeSymbology::QR => {
                             render_qr(ctx, &value, x, y, width, height)?;

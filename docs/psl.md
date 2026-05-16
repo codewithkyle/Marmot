@@ -411,7 +411,7 @@ contain imagefit
 ## Barcode drawing
 
 - Symbology words push a barcode value onto the stack:
-  - `c39`, `c128a`, `c128b`, `c128c`, `upca`, `ean13`, `ean8`, `qr`, `datamatrix`
+  - `c39`, `c128a`, `c128b`, `c128c`, `upca`, `ean13`, `ean8`, `msi`, `qr`, `datamatrix`
 - `barcode` consumes six values:
   - `value symbology x y width height`
   - `value` is a text value (literal, string slot, or transformed text)
@@ -420,7 +420,7 @@ contain imagefit
 
 Render behavior notes:
 
-- 1D codes (`c39`, `c128a/b/c`, `upca`, `ean13`, `ean8`) are drawn as vector bars.
+- 1D codes (`c39`, `c128a/b/c`, `upca`, `ean13`, `ean8`, `msi`) are drawn as vector bars.
 - `upca`, `ean13`, and `ean8` guard bars are extended by about `5X` (module widths).
 - `qr` is encoded with error correction level `M` and a 4-module quiet zone.
 - `datamatrix` is encoded with Data Matrix symbols (can be rectangular) and a 1-module quiet zone.

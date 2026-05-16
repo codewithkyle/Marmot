@@ -1712,6 +1712,58 @@ fn ean8_guard_module_boundaries() {
 }
 
 #[test]
+fn executes_msi_barcode_draw_op() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("1234567".to_string()),
+        symbology: crate::parser::BarcodeSymbology::MSI,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    execute_draw_ops_for_test(&draw_ops, None).unwrap();
+}
+
+#[test]
+fn errors_when_msi_data_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("12A45".to_string()),
+        symbology: crate::parser::BarcodeSymbology::MSI,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(220.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::BarcodeEncode { symbology, data, .. }
+            if symbology == "msi" && data == "12A45"
+    ));
+}
+
+#[test]
+fn errors_when_msi_barcode_geometry_is_invalid() {
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("1234567".to_string()),
+        symbology: crate::parser::BarcodeSymbology::MSI,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(20.0),
+        width: NumberValue::Literal(0.0),
+        height: NumberValue::Literal(50.0),
+    }];
+
+    let err = execute_draw_ops_for_test(&draw_ops, None).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::InvalidBarcodeGeometry { width, height }
+            if width == 0.0 && height == 50.0
+    ));
+}
+
+#[test]
 fn executes_qr_barcode_draw_op() {
     let draw_ops = vec![DrawOp::Barcode {
         value: TextValue::Literal("https://example.com/marmot".to_string()),

@@ -37,6 +37,7 @@ pub enum BarcodeSymbology {
     UPCA,
     EAN13,
     EAN8,
+    MSI,
     QR,
     DataMatrix,
 }
@@ -51,6 +52,7 @@ impl BarcodeSymbology {
             "upca" => Some(Self::UPCA),
             "ean13" => Some(Self::EAN13),
             "ean8" => Some(Self::EAN8),
+            "msi" => Some(Self::MSI),
             "qr" => Some(Self::QR),
             "datamatrix" => Some(Self::DataMatrix),
             _ => None,
@@ -66,6 +68,7 @@ impl BarcodeSymbology {
             BarcodeSymbology::UPCA => "upca".to_string(),
             BarcodeSymbology::EAN13 => "ean13".to_string(),
             BarcodeSymbology::EAN8 => "ean8".to_string(),
+            BarcodeSymbology::MSI => "msi".to_string(),
             BarcodeSymbology::QR => "qr".to_string(),
             BarcodeSymbology::DataMatrix => "datamatrix".to_string(),
         }

@@ -2031,6 +2031,42 @@ end
 }
 
 #[test]
+fn parses_msi_barcode_draw_op() {
+    let source = r#"%!PSL 0.1
+page 300 200
+slots begin
+  item_id string required
+end
+frames begin
+  1 FRAME_1
+end
+
+draw begin
+  frame 1 begin
+      $(item_id) msi 20 20 220 50 barcode
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+
+    assert_eq!(
+        template.draw_frames[0].ops,
+        vec![DrawOp::Barcode {
+            value: TextValue::Slot("item_id".to_string()),
+            symbology: BarcodeSymbology::MSI,
+            x: NumberValue::Literal(20.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(220.0),
+            height: NumberValue::Literal(50.0),
+        }]
+    );
+}
+
+#[test]
 fn parses_qr_barcode_draw_op() {
     let source = r#"%!PSL 0.1
 page 300 200
