@@ -24,7 +24,7 @@ use crate::{
 };
 use crate::{
     parser::{
-        AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page,
+        AssetType, BarcodeSymbology, DrawOp, LayerDecl, LayerDrawBlock, NumberValue, Page,
         TextValue,
     },
     scripting::LuaRuntime,
@@ -52,6 +52,17 @@ pub struct RenderOutcome {
 pub struct FrameRuntimeState {
     pub visible: bool,
     pub value_override: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayerRuntimeState {
+    pub visible: bool,
+}
+
+impl LayerRuntimeState {
+    pub fn default_visible() -> Self {
+        Self { visible: true }
+    }
 }
 
 #[allow(dead_code)]
@@ -360,6 +371,42 @@ impl Default for RenderState {
     }
 }
 
+fn run_layer_scripts(
+    layer_state: &mut HashMap<u32, LayerRuntimeState>,
+    data: Option<&Value>,
+    context: &RenderContext,
+    runtime: &mut LuaRuntime,
+) -> Result<(), RenderError> {
+    if context.scripts.is_empty() {
+        return Ok(());
+    }
+
+    let prepared_data = runtime
+        .build_data_api(data)
+        .map_err(|err| RenderError::ScriptRuntime {
+            frame_index: 0,
+            frame_id: "<data>".to_string(),
+            message: err.to_string(),
+        })?;
+
+    for planned in &context.layer_script_plan {
+        let Some(source) = context.scripts.get(&planned.layer_id) else {
+            continue;
+        };
+
+        let updated = runtime
+            .exec_layer_with_data(&planned.layer_id, source, &prepared_data)
+            .map_err(|err| RenderError::ScriptRuntime {
+                frame_index: planned.layer_index,
+                frame_id: planned.layer_id.clone(),
+                message: err.to_string(),
+            })?;
+
+        layer_state.insert(planned.layer_index, updated);
+    }
+    Ok(())
+}
+
 fn run_frame_scripts(
     frame_state: &mut HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
@@ -378,7 +425,7 @@ fn run_frame_scripts(
             message: err.to_string(),
         })?;
 
-    for planned in &context.script_plan {
+    for planned in &context.frame_script_plan {
         let Some(source) = context.scripts.get(&planned.frame_id) else {
             continue;
         };
@@ -1564,17 +1611,37 @@ fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont
     }
 }
 
-fn should_render_frame(state: Option<&FrameRuntimeState>) -> bool {
-    let Some(state) = state else {
+fn should_render_frame(
+    layer_state: Option<&LayerRuntimeState>,
+    frame_state: Option<&FrameRuntimeState>,
+) -> bool {
+    let Some(layer) = layer_state else {
         return true;
     };
-    state.visible
+    if !layer.visible {
+        return false;
+    }
+
+    let Some(frame) = frame_state else {
+        return true;
+    };
+    frame.visible
 }
 
-fn build_initial_frame_state(frames: &[FrameDecl]) -> HashMap<u32, FrameRuntimeState> {
+fn build_initial_layer_state(layers: &[LayerDecl]) -> HashMap<u32, LayerRuntimeState> {
     let mut out = HashMap::new();
-    for frame in frames {
-        out.insert(frame.index, FrameRuntimeState::default_visible());
+    for layer in layers {
+        out.insert(layer.index, LayerRuntimeState::default_visible());
+    }
+    out
+}
+
+fn build_initial_frame_state(layers: &[LayerDecl]) -> HashMap<u32, FrameRuntimeState> {
+    let mut out = HashMap::new();
+    for layer in layers {
+        for frame in &layer.frames {
+            out.insert(frame.index, FrameRuntimeState::default_visible());
+        }
     }
     out
 }
@@ -1597,7 +1664,8 @@ fn warn_if_empty_set_value(
 
 fn execute_draw(
     ctx: &Context,
-    draw_frames: &[FrameDrawBlock],
+    draw_layers: &[LayerDrawBlock],
+    layer_state: &HashMap<u32, LayerRuntimeState>,
     frame_state: &HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1609,17 +1677,24 @@ fn execute_draw(
     let layout = pangocairo::functions::create_layout(ctx);
     let mut warnings = RenderWarnings::default();
 
-    for frame in draw_frames {
-        let runtime = frame_state.get(&frame.index);
+    for layer in draw_layers {
+        let runtime_layer = layer_state.get(&layer.index);
 
-        warn_if_empty_set_value(frame.index, runtime, &mut warnings);
-
-        if !should_render_frame(runtime) {
+        if !should_render_frame(runtime_layer, None) {
             continue;
         }
 
-        for op in &frame.ops {
-            match op {
+        for frame in &layer.frames {
+            let runtime = frame_state.get(&frame.index);
+
+            warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+
+            if !should_render_frame(runtime_layer, runtime) {
+                continue;
+            }
+
+            for op in &frame.ops {
+                match op {
                 DrawOp::Barcode {
                     value,
                     symbology,
@@ -1831,6 +1906,7 @@ fn execute_draw(
                         eval_number(height, data)?,
                     )?;
                 }
+                }
             }
         }
     }
@@ -1840,8 +1916,8 @@ fn execute_draw(
 
 pub fn render_pdf(
     page: &Page,
-    frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_layers: &[LayerDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1850,8 +1926,8 @@ pub fn render_pdf(
     let mut cache = RenderCache::default();
     render_pdf_with_cache(
         page,
-        frames,
-        draw_frames,
+        layers,
+        draw_layers,
         output_path,
         data,
         context,
@@ -1862,8 +1938,8 @@ pub fn render_pdf(
 
 pub fn render_pdf_with_cache(
     page: &Page,
-    frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_layers: &[LayerDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1872,15 +1948,18 @@ pub fn render_pdf_with_cache(
 ) -> Result<RenderOutcome, RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
-    let mut frame_state = build_initial_frame_state(frames);
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state(layers);
     let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
     let warnings = execute_draw(
         &ctx,
-        draw_frames,
+        draw_layers,
+        &layer_state,
         &frame_state,
         data,
         context,
@@ -1899,8 +1978,8 @@ pub fn render_pdf_with_cache(
 
 pub fn render_png(
     page: &Page,
-    frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_layers: &[LayerDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1912,8 +1991,8 @@ pub fn render_png(
     let mut cache = RenderCache::default();
     render_png_with_cache(
         page,
-        frames,
-        draw_frames,
+        layers,
+        draw_layers,
         output_path,
         data,
         context,
@@ -1927,8 +2006,8 @@ pub fn render_png(
 
 pub fn render_png_with_cache(
     page: &Page,
-    frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_layers: &[LayerDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1946,15 +2025,18 @@ pub fn render_png_with_cache(
     let ctx = Context::new(&surface)?;
     ctx.scale(scale, scale);
 
-    let mut frame_state = build_initial_frame_state(frames);
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state(layers);
     let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
     let warnings = execute_draw(
         &ctx,
-        draw_frames,
+        draw_layers,
+        &layer_state,
         &frame_state,
         data,
         context,

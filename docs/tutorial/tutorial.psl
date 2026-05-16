@@ -23,19 +23,22 @@ assets begin
   super_save image "assets/super-save.png"
 end
 
-frames begin
-  1 FRAME_BASE_DEFAULT
-  2 FRAME_BASE_SUPER
-  3 FRAME_HEADER
-  4 FRAME_PRICE_DEFAULT
-  5 FRAME_PRICE_SUPER
-  6 FRAME_LOGO
-  7 FRAME_BADGE
-  8 FRAME_BAR_CODES
-  9 FRAME_QR_CODES
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_BASE_DEFAULT
+    2 FRAME_BASE_SUPER
+    3 FRAME_HEADER
+    4 FRAME_PRICE_DEFAULT
+    5 FRAME_PRICE_SUPER
+    6 FRAME_LOGO
+    7 FRAME_BADGE
+    8 FRAME_BAR_CODES
+    9 FRAME_QR_CODES
+  end
 end
 
 draw begin
+  layer 1 begin
   frame 1 begin
     % Card background + border
     1 1 1 rgb
@@ -143,5 +146,6 @@ draw begin
 
   frame 9 begin
     $(promo_url) qr 355 215 60 60 barcode
+  end
   end
 end

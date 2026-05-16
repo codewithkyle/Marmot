@@ -10,12 +10,16 @@ This document describes the syntax and semantics currently implemented.
 %!PSL 0.1
 page 612 792
 
-frames begin
-  1 FRAME_1
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_1
+  end
 end
 
 draw begin
+  layer 1 begin
   frame 1 begin
+  end
   end
 end
 ```
@@ -29,14 +33,14 @@ Current parser expects this order:
 3. Optional `slots begin ... end`
 4. Optional `fonts begin ... end`
 5. Optional `assets begin ... end`
-6. Required `frames begin ... end`
+6. Required `layers begin ... end`
 7. Required `draw begin ... end`
 
 Notes:
 
 - `slots`, `fonts`, and `assets` are optional blocks.
-- `frames` and `draw` are required blocks.
-- Block order is fixed: `slots` -> `fonts` -> `assets` -> `frames` -> `draw`.
+- `layers` and `draw` are required blocks.
+- Block order is fixed: `slots` -> `fonts` -> `assets` -> `layers` -> `draw`.
 
 ## Lexical Tokens
 
@@ -196,22 +200,27 @@ Rules:
 - Paths are resolved inside the `.marmot` package.
 - Duplicate aliases are rejected at render-context build time.
 
-## Frames Block
+## Layers Block
 
 Syntax:
 
 ```psl
-frames begin
-  <u32> <id>
-  ...
+layers begin
+  layer <u32> <id> begin
+    <u32> <frame_id>
+    ...
+  end
 end
 ```
 
 Rules:
 
-- `<u32>` must be a non-negative integer in `u32` range.
-- `<id>` must be a word token.
+- Layer `<u32>` must be a non-negative integer in `u32` range.
+- Layer `<id>` must be a word token.
+- Frame `<u32>` must be a non-negative integer in `u32` range.
+- Frame `<frame_id>` must be a word token.
 - Frame indices are referenced by `draw` frame blocks.
+- Frames must be declared inside a layer.
 
 ## Draw Block
 
@@ -219,29 +228,35 @@ Syntax:
 
 ```psl
 draw begin
-  frame <u32> begin
-    ...operators...
+  layer <u32> begin
+    frame <u32> begin
+      ...operators...
+    end
   end
-  ...
 end
 ```
 
 Rules:
 
-- Every draw block entry must be a `frame <u32> begin ... end` section.
-- Referenced frame index must exist in the `frames` block.
+- Every draw block entry must be a `layer <u32> begin ... end` section.
+- Every layer section must contain one or more `frame <u32> begin ... end` sections.
+- Referenced layer index must exist in the `layers` block.
+- Referenced frame index must exist in the `layers` block and belong to the current draw layer.
 - Each frame section has its own stack/path validation.
 
 ## Scripting Integration
 
 PSL itself does not embed Lua syntax. Scripts are external package files.
 
-- Script path: `scripts/<frame_id>.lua` inside `.marmot` package.
-- `<frame_id>` must match frame id declared in `frames begin ... end`.
-- Missing script for a frame is valid (no-op).
-- Unknown script file (no matching frame id) fails context build.
+- Script path: `scripts/<script_id>.lua` inside `.marmot` package.
+- `<script_id>` may be either a layer id or a frame id declared in `layers begin ... end`.
+- Missing scripts are valid (no-op).
+- Unknown script file (no matching layer/frame id) fails context build.
+- A layer id and frame id cannot share the same script id.
 
-At render time, script can mutate per-frame runtime properties:
+At render time, scripts can mutate runtime properties:
+
+- `layer.visible: boolean`
 
 - `frame.visible: boolean`
 - `frame.value: string | nil`
@@ -256,17 +271,19 @@ Override behavior:
 
 For full API and runtime details, see [`docs/scripting.md`](docs/scripting.md).
 
-## Frame Blocks in `draw`
+## Layer/Frame Blocks in `draw`
 
-`draw` is frame-scoped. This means all rendering operators must appear inside a frame block.
+`draw` is layer-scoped and frame-scoped. All rendering operators must appear inside a frame block inside a layer block.
 
 Valid shape:
 
 ```psl
 draw begin
+  layer 1 begin
   frame 1 begin
     1 0 0 rgb
     10 10 100 40 rect fill
+  end
   end
 end
 ```
@@ -280,7 +297,7 @@ draw begin
 end
 ```
 
-In other words, `draw begin ... end` only contains one or more `frame <u32> begin ... end` blocks, and each frame block contains the actual draw operations.
+In other words, `draw begin ... end` only contains one or more `layer <u32> begin ... end` blocks, each layer block contains one or more `frame <u32> begin ... end` blocks, and each frame block contains the actual draw operations.
 
 The draw language is stack-based.
 
@@ -511,12 +528,15 @@ fonts begin
   kablammo "fonts/Kablammo.ttf"
 end
 
-frames begin
-  1 FRAME_BASE
-  2 FRAME_TITLE
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_BASE
+    2 FRAME_TITLE
+  end
 end
 
 draw begin
+  layer 1 begin
   frame 1 begin
     1 1 1 rgb
     0 0 300 120 rect fill
@@ -534,6 +554,7 @@ draw begin
     grow textfit
     (kablammo) font
     $(product_name) 20 40 260 40 textbox
+  end
   end
 end
 ```

@@ -9,10 +9,13 @@ use mlua::{
 };
 use serde_json::Value as JsonValue;
 
-use crate::renderer::FrameRuntimeState;
+use crate::renderer::{FrameRuntimeState, LayerRuntimeState};
 
 #[derive(Clone)]
 struct FrameHandle(Rc<RefCell<FrameRuntimeState>>);
+
+#[derive(Clone)]
+struct LayerHandle(Rc<RefCell<LayerRuntimeState>>);
 
 impl UserData for FrameHandle {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
@@ -41,6 +44,21 @@ impl UserData for FrameHandle {
             }
             _ => Err(LuaError::RuntimeError(
                 "frame.value expects string or nil".to_string(),
+            )),
+        });
+    }
+}
+
+impl UserData for LayerHandle {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("visible", |_, this| Ok(this.0.borrow().visible));
+        fields.add_field_method_set("visible", |_, this, v: LuaValue| match v {
+            LuaValue::Boolean(b) => {
+                this.0.borrow_mut().visible = b;
+                Ok(())
+            }
+            _ => Err(LuaError::RuntimeError(
+                "layer.visible expects boolean".to_string(),
             )),
         });
     }
@@ -115,6 +133,43 @@ impl LuaRuntime {
 
         let key = self.compiled_scripts.get(frame_id).ok_or_else(|| {
             LuaError::RuntimeError(format!("compiled script not found for frame '{frame_id}'"))
+        })?;
+        let func: mlua::Function = self.lua.registry_value(key)?;
+        func.call::<()>(env)?;
+
+        Ok(state.borrow().clone())
+    }
+
+    pub fn exec_layer(
+        &mut self,
+        layer_id: &str,
+        source: &str,
+        data: Option<&JsonValue>,
+    ) -> mlua::Result<LayerRuntimeState> {
+        let data_api = self.build_data_api(data)?;
+        self.exec_layer_with_data(layer_id, source, &data_api)
+    }
+
+    pub fn exec_layer_with_data(
+        &mut self,
+        layer_id: &str,
+        source: &str,
+        data_api: &mlua::Table,
+    ) -> mlua::Result<LayerRuntimeState> {
+        self.compile_if_needed(layer_id, source)?;
+
+        let state = Rc::new(RefCell::new(LayerRuntimeState { visible: true }));
+
+        let env = self.lua.create_table()?;
+        env.set("data", data_api.clone())?;
+        env.set("layer", LayerHandle(state.clone()))?;
+
+        let metatable = self.lua.create_table()?;
+        metatable.set("__index", self.sandbox_base()?)?;
+        env.set_metatable(Some(metatable))?;
+
+        let key = self.compiled_scripts.get(layer_id).ok_or_else(|| {
+            LuaError::RuntimeError(format!("compiled script not found for layer '{layer_id}'"))
         })?;
         let func: mlua::Function = self.lua.registry_value(key)?;
         func.call::<()>(env)?;

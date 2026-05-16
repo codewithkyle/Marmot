@@ -568,8 +568,8 @@ fn render(args: RenderArgs) -> Result<()> {
     let outcome = match args.output_type {
         OutputType::PDF => render_pdf(
             &template.page,
-            &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_layers,
             &args.output_file,
             data.as_ref(),
             &render_context,
@@ -578,8 +578,8 @@ fn render(args: RenderArgs) -> Result<()> {
         .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?,
         OutputType::PNG => render_png(
             &template.page,
-            &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_layers,
             &args.output_file,
             data.as_ref(),
             &render_context,
@@ -1007,8 +1007,8 @@ fn process_batch_line(
     let outcome = match output_type {
         OutputType::PDF => render_pdf_with_cache(
             &template.page,
-            &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_layers,
             &output_path,
             Some(&record),
             &render_context,
@@ -1017,8 +1017,8 @@ fn process_batch_line(
         ),
         OutputType::PNG => render_png_with_cache(
             &template.page,
-            &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_layers,
             &output_path,
             Some(&record),
             &render_context,

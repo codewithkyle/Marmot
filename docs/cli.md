@@ -94,7 +94,7 @@ Behavior:
 - Loads and parses `template.psl` from package.
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
-- Loads package frame scripts from `scripts/*.lua` when present.
+- Loads package layer/frame scripts from `scripts/*.lua` when present.
 - Allows `loadimage` host filesystem reads only with `--allow-host-assets`.
 - Resolves relative `loadimage` host paths from current working directory.
 - Renders to `--output` as PDF or PNG (`--output-type`, default `pdf`).
@@ -104,7 +104,7 @@ Behavior:
 Notes:
 
 - If template uses slot values in `draw`, rendering without `[data]` fails.
-- Template `frames begin ... end` and framed `draw` sections are required.
+- Template `layers begin ... end` and nested `draw -> layer -> frame` sections are required.
 - `--dpi` applies to PNG output (default `300`, range `72..=1200`).
 - `--dither` applies to PNG output and requires `remap.plt` in the package.
 - `--allow-host-assets` enables runtime host filesystem image reads via PSL `loadimage`.
@@ -263,13 +263,13 @@ Common validation behavior:
 
 ## `unknown script file` or `invalid script file extension`
 
-- Cause: file in package `scripts/` does not map to declared frame id, or script file is not `.lua`.
-- Fix: rename script to `<frame_id>.lua` and keep only Lua files in `scripts/`.
+- Cause: file in package `scripts/` does not map to declared layer/frame id, or script file is not `.lua`.
+- Fix: rename script to `<layer_id>.lua` or `<frame_id>.lua` and keep only Lua files in `scripts/`.
 
-## `ScriptRuntime` / script failed for frame
+## `ScriptRuntime` / script failed for layer or frame
 
-- Cause: Lua runtime error or invalid assignment (`frame.visible`, `frame.value`).
-- Fix: check script line and types; ensure `frame.visible` is boolean and `frame.value` is string or `nil`.
+- Cause: Lua runtime error or invalid assignment (`layer.visible`, `frame.visible`, `frame.value`).
+- Fix: check script line and types; ensure `layer.visible`/`frame.visible` are boolean and `frame.value` is string or `nil`.
 
 ## `record missing field '<name>' required by output template`
 
@@ -288,4 +288,4 @@ Common validation behavior:
 - Output formats: PDF, PNG
 - Packaged fonts: supported
 - Packaged image assets + draw-time image operator: supported
-- Packaged frame scripting (`scripts/*.lua`): supported
+- Packaged layer/frame scripting (`scripts/*.lua`): supported

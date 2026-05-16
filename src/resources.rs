@@ -22,11 +22,18 @@ pub struct RenderContext {
     pub fonts: HashMap<String, RegisteredFont>,
     pub assets: HashMap<String, RegisteredAsset>,
     pub scripts: HashMap<String, String>,
-    pub script_plan: Vec<ScriptPlanEntry>,
+    pub layer_script_plan: Vec<LayerScriptPlanEntry>,
+    pub frame_script_plan: Vec<FrameScriptPlanEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptPlanEntry {
+pub struct LayerScriptPlanEntry {
+    pub layer_index: u32,
+    pub layer_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameScriptPlanEntry {
     pub frame_index: u32,
     pub frame_id: String,
 }
@@ -238,7 +245,22 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         assets.insert(asset_decl.name.clone(), registered);
     }
 
-    let frame_ids: HashSet<&str> = template.frames.iter().map(|f| f.id.as_str()).collect();
+    let layer_ids: HashSet<&str> = template.layers.iter().map(|l| l.id.as_str()).collect();
+    let frame_ids: HashSet<&str> = template
+        .layers
+        .iter()
+        .flat_map(|layer| layer.frames.iter())
+        .map(|frame| frame.id.as_str())
+        .collect();
+
+    for layer_id in &layer_ids {
+        if frame_ids.contains(layer_id) {
+            bail!(
+                "ambiguous script id '{}' is declared as both layer id and frame id",
+                layer_id
+            );
+        }
+    }
 
     let script_files = package.list_files_under("scripts")?;
     for filename in script_files {
@@ -257,9 +279,9 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
             .ok_or_else(|| anyhow!("invalid script filename: {}", path.display()))?
             .to_string();
 
-        if !frame_ids.contains(frame_id.as_str()) {
+        if !frame_ids.contains(frame_id.as_str()) && !layer_ids.contains(frame_id.as_str()) {
             bail!(
-                "unknown script file '{}' (no matching frame id '{}')",
+                "unknown script file '{}' (no matching layer/frame id '{}')",
                 path.display(),
                 frame_id
             );
@@ -275,18 +297,39 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         scripts.insert(frame_id, source);
     }
 
-    let drawn_indices: HashSet<u32> = template.draw_frames.iter().map(|f| f.index).collect();
-    let mut script_plan = Vec::new();
+    let drawn_layer_indices: HashSet<u32> = template.draw_layers.iter().map(|l| l.index).collect();
+    let drawn_frame_indices: HashSet<u32> = template
+        .draw_layers
+        .iter()
+        .flat_map(|layer| layer.frames.iter())
+        .map(|frame| frame.index)
+        .collect();
 
-    for frame in &template.frames {
-        if !drawn_indices.contains(&frame.index) {
+    let mut layer_script_plan = Vec::new();
+    for layer in &template.layers {
+        if !drawn_layer_indices.contains(&layer.index) {
             continue;
         }
-        if scripts.contains_key(&frame.id) {
-            script_plan.push(ScriptPlanEntry {
-                frame_index: frame.index,
-                frame_id: frame.id.clone(),
+        if scripts.contains_key(&layer.id) {
+            layer_script_plan.push(LayerScriptPlanEntry {
+                layer_index: layer.index,
+                layer_id: layer.id.clone(),
             });
+        }
+    }
+
+    let mut frame_script_plan = Vec::new();
+    for layer in &template.layers {
+        for frame in &layer.frames {
+            if !drawn_frame_indices.contains(&frame.index) {
+                continue;
+            }
+            if scripts.contains_key(&frame.id) {
+                frame_script_plan.push(FrameScriptPlanEntry {
+                    frame_index: frame.index,
+                    frame_id: frame.id.clone(),
+                });
+            }
         }
     }
 
@@ -294,7 +337,8 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         fonts,
         assets,
         scripts,
-        script_plan,
+        layer_script_plan,
+        frame_script_plan,
     })
 }
 
@@ -470,7 +514,11 @@ mod test {
         let template_file = dir.path().join("template.psl");
         let package_file = dir.path().join("bundle.marmot");
 
-        fs::write(&template_file, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+        fs::write(
+            &template_file,
+            "%!PSL 0.1\npage 10 10\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
+        )
+        .unwrap();
 
         create_package(PackageBuilderOptions {
             template_file,
@@ -495,7 +543,11 @@ mod test {
         let font = root.join("test/fonts/Kablammo.ttf");
         let asset = root.join("test/images/sprout-basket.png");
 
-        fs::write(&template_file, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+        fs::write(
+            &template_file,
+            "%!PSL 0.1\npage 10 10\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
+        )
+        .unwrap();
 
         create_package(PackageBuilderOptions {
             template_file,
@@ -521,8 +573,8 @@ mod test {
             slots: vec![],
             fonts: vec![],
             assets: vec![],
-            frames: vec![],
-            draw_frames: vec![],
+            layers: vec![],
+            draw_layers: vec![],
         }
     }
 
