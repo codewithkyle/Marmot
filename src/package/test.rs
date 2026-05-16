@@ -112,3 +112,31 @@ fn creates_and_opens_package_with_resolvable_entries() {
     let err = package.resolve_path("../escape").unwrap_err().to_string();
     assert!(err.contains("invalid package path"));
 }
+
+#[test]
+fn create_package_includes_remap_file_when_provided() {
+    let dir = tempdir().unwrap();
+    let template = dir.path().join("template.psl");
+    let remap = dir.path().join("remap.plt");
+    let output = dir.path().join("bundle.marmot");
+
+    fs::write(&template, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+    fs::write(&remap, "FFFFFF\n000000\nFF0000\n").unwrap();
+
+    create_package(PackageBuilderOptions {
+        template_file: template,
+        output_file: output.clone(),
+        assets: vec![],
+        fonts: vec![],
+        scripts: vec![],
+        remap_file: Some(remap),
+    })
+    .unwrap();
+
+    let package = MarmotPackage::open(&output).unwrap();
+    let remap_path = package.resolve_path("remap.plt").unwrap();
+    assert!(remap_path.is_file());
+    let remap_contents = fs::read_to_string(remap_path).unwrap();
+    assert!(remap_contents.contains("FFFFFF"));
+    assert!(remap_contents.contains("000000"));
+}

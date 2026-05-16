@@ -1058,6 +1058,8 @@ fn percentile_duration(sorted: &[Duration], percentile: f64) -> Duration {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::fs;
+    use tempfile::tempdir;
     #[test]
     fn output_name_supports_single_top_level_field() {
         let record = json!({ "sku": "49000000001" });
@@ -1115,5 +1117,96 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unsafe '..'"));
+    }
+
+    #[test]
+    fn dither_type_parsing_accepts_supported_values() {
+        assert!(DitherType::try_from_word("floyd").is_ok());
+        assert!(DitherType::try_from_word("atkinson").is_ok());
+        assert!(DitherType::try_from_word("stucki").is_ok());
+        assert!(DitherType::try_from_word("burkes").is_ok());
+        assert!(DitherType::try_from_word("jarvis").is_ok());
+        assert!(DitherType::try_from_word("sierra3").is_ok());
+    }
+
+    #[test]
+    fn dither_type_parsing_rejects_unknown_value() {
+        let err = match DitherType::try_from_word("ordered") {
+            Ok(_) => panic!("expected invalid dither type error"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("invalid dither type"));
+    }
+
+    #[test]
+    fn load_remap_returns_none_when_dither_is_not_requested() {
+        let dir = tempdir().unwrap();
+        let template = dir.path().join("template.psl");
+        let package_file = dir.path().join("no-dither.marmot");
+        fs::write(&template, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+
+        create_package(PackageBuilderOptions {
+            template_file: template,
+            output_file: package_file.clone(),
+            assets: vec![],
+            fonts: vec![],
+            scripts: vec![],
+            remap_file: None,
+        })
+        .unwrap();
+
+        let pkg = MarmotPackage::open(&package_file).unwrap();
+        let remap = load_remap_palette_if_needed(&pkg, None).unwrap();
+        assert!(remap.is_none());
+    }
+
+    #[test]
+    fn load_remap_errors_when_dither_is_requested_but_package_has_no_remap() {
+        let dir = tempdir().unwrap();
+        let template = dir.path().join("template.psl");
+        let package_file = dir.path().join("missing-remap.marmot");
+        fs::write(&template, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+
+        create_package(PackageBuilderOptions {
+            template_file: template,
+            output_file: package_file.clone(),
+            assets: vec![],
+            fonts: vec![],
+            scripts: vec![],
+            remap_file: None,
+        })
+        .unwrap();
+
+        let pkg = MarmotPackage::open(&package_file).unwrap();
+        let err = load_remap_palette_if_needed(&pkg, Some(DitherType::Floyd))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("--dither requires remap.plt in package"));
+    }
+
+    #[test]
+    fn load_remap_reads_palette_when_dither_is_requested() {
+        let dir = tempdir().unwrap();
+        let template = dir.path().join("template.psl");
+        let remap = dir.path().join("remap.plt");
+        let package_file = dir.path().join("has-remap.marmot");
+        fs::write(&template, "%!PSL 0.1\npage 10 10\ndraw begin\nend\n").unwrap();
+        fs::write(&remap, "FFFFFF\n000000\nFF0000\n").unwrap();
+
+        create_package(PackageBuilderOptions {
+            template_file: template,
+            output_file: package_file.clone(),
+            assets: vec![],
+            fonts: vec![],
+            scripts: vec![],
+            remap_file: Some(remap),
+        })
+        .unwrap();
+
+        let pkg = MarmotPackage::open(&package_file).unwrap();
+        let remap = load_remap_palette_if_needed(&pkg, Some(DitherType::Floyd)).unwrap();
+        let remap = remap.expect("expected remap source when dither is enabled");
+        assert!(remap.contains("FFFFFF"));
+        assert!(remap.contains("000000"));
     }
 }

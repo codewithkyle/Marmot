@@ -1986,3 +1986,50 @@ fn script_runtime_error_fails_render() {
     let msg = format!("{err:?}");
     assert!(msg.contains("boom"));
 }
+
+#[test]
+fn remap_config_errors_when_dither_enabled_but_palette_missing() {
+    let err = match build_image_remap_config(Some(DitherType::Floyd), None) {
+        Ok(_) => panic!("expected missing-palette error"),
+        Err(err) => err,
+    };
+    assert!(matches!(err, RenderError::RemapMissingPalette));
+}
+
+#[test]
+fn remap_config_errors_on_invalid_palette_source() {
+    let err = match build_image_remap_config(Some(DitherType::Floyd), Some("not-a-color\n")) {
+        Ok(_) => panic!("expected palette parse error"),
+        Err(err) => err,
+    };
+    assert!(matches!(err, RenderError::RemapPaletteParse { .. }));
+}
+
+#[test]
+fn dithered_remap_output_uses_only_palette_colors() {
+    use image::{Rgba, RgbaImage};
+
+    let source = "FFFFFF\n000000\nFF0000\n00FF00\n0000FF\n";
+    let cfg = build_image_remap_config(Some(DitherType::Floyd), Some(source))
+        .unwrap()
+        .expect("expected remap config");
+
+    let mut rgba = RgbaImage::new(2, 2);
+    rgba.put_pixel(0, 0, Rgba([12, 200, 180, 255]));
+    rgba.put_pixel(1, 0, Rgba([250, 22, 12, 255]));
+    rgba.put_pixel(0, 1, Rgba([20, 20, 20, 255]));
+    rgba.put_pixel(1, 1, Rgba([240, 240, 240, 255]));
+
+    apply_remap_to_rgba(&mut rgba, &cfg).unwrap();
+
+    let allowed = [
+        [255u8, 255u8, 255u8],
+        [0u8, 0u8, 0u8],
+        [255u8, 0u8, 0u8],
+        [0u8, 255u8, 0u8],
+        [0u8, 0u8, 255u8],
+    ];
+    for px in rgba.pixels() {
+        assert!(allowed.contains(&[px[0], px[1], px[2]]));
+    }
+}
