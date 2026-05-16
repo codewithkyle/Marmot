@@ -6,6 +6,10 @@ fn parses_header_and_page() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -72,6 +76,10 @@ fn errors_when_extra_tokens_exist() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -93,7 +101,7 @@ extra
         err,
         ParseError::ExpectedEof {
             found: TokenKind::Word("extra".to_string()),
-            line: 12,
+            line: 16,
             column: 1,
         }
     );
@@ -103,6 +111,10 @@ extra
 fn parses_template_without_slots() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -130,6 +142,10 @@ page 612 792
 
 slots begin
   product_name string required
+end
+
+frames begin
+  1 FRAME_1
 end
 
 layers begin
@@ -169,6 +185,10 @@ slots begin
   sale_price decimal required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -198,6 +218,10 @@ page 612 792
 
 slots begin
   product_name text required
+end
+
+frames begin
+  1 FRAME_1
 end
 
 layers begin
@@ -235,6 +259,10 @@ slots begin
   price string required
 end
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -261,6 +289,10 @@ end end
 fn parses_simple_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -308,6 +340,10 @@ fn errors_when_rgb_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -331,7 +367,7 @@ end end
             operator: "rgb".to_string(),
             expected: 3,
             actual: 2,
-            line: 10,
+            line: 14,
             column: 11,
         }
     );
@@ -341,6 +377,10 @@ end end
 fn parses_cmyk_command() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -375,6 +415,10 @@ fn errors_when_cmyk_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -398,7 +442,7 @@ end end
             operator: "cmyk".to_string(),
             expected: 4,
             actual: 3,
-            line: 10,
+            line: 14,
             column: 19,
         }
     );
@@ -408,6 +452,10 @@ end end
 fn errors_when_line_has_too_few_values() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -432,7 +480,7 @@ end end
             operator: "line".to_string(),
             expected: 4,
             actual: 3,
-            line: 10,
+            line: 14,
             column: 14,
         }
     );
@@ -442,6 +490,10 @@ end end
 fn parses_static_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -477,6 +529,10 @@ fn errors_when_textbox_text_is_missing() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -500,7 +556,7 @@ end end
             operator: "textbox".to_string(),
             expected: 5,
             actual: 4,
-            line: 10,
+            line: 14,
             column: 19,
         }
     );
@@ -510,6 +566,10 @@ end end
 fn errors_when_textbox_text_is_not_string() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -534,7 +594,7 @@ end end
             operator: "textbox".to_string(),
             expected: "string".to_string(),
             found: "number".to_string(),
-            line: 10,
+            line: 14,
             column: 21,
         }
     );
@@ -547,6 +607,10 @@ page 612 792
 
 slots begin
   x decimal
+end
+
+frames begin
+  1 FRAME_1
 end
 
 layers begin
@@ -585,6 +649,10 @@ fn parses_rect_fill() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -621,6 +689,10 @@ fn errors_on_unknown_slot_in_draw() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -642,7 +714,7 @@ end end
         err,
         ParseError::UnknownSlot {
             name: "missing".to_string(),
-            line: 10,
+            line: 14,
             column: 7,
         }
     );
@@ -655,6 +727,10 @@ page 612 792
 
 slots begin
   product_name string
+end
+
+frames begin
+  1 FRAME_1
 end
 
 layers begin
@@ -695,6 +771,10 @@ slots begin
   r decimal
 end
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -731,6 +811,10 @@ slots begin
   c decimal
 end
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -764,6 +848,10 @@ fn errors_on_zero_rect_width() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -788,7 +876,7 @@ end end
             operand: "width".to_string(),
             value: 0.0,
             expected: "> 0".to_string(),
-            line: 10,
+            line: 14,
             column: 16,
         }
     );
@@ -798,6 +886,10 @@ end end
 fn allows_zero_line_coordinates() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -840,6 +932,10 @@ fonts begin
   helvetica_bold "fonts/Helvetica-Bold.ttf"
 end
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -878,6 +974,10 @@ page 612 792
 
 fonts begin
   helvetica
+end
+
+frames begin
+  1 FRAME_1
 end
 
 layers begin
@@ -960,6 +1060,10 @@ fn errors_when_draw_begin_keyword_is_missing() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -978,7 +1082,7 @@ draw start
         ParseError::ExpectedWord {
             expected: "begin".to_string(),
             found: TokenKind::Word("start".to_string()),
-            line: 8,
+            line: 12,
             column: 6,
         }
     );
@@ -988,6 +1092,10 @@ draw start
 fn errors_on_unexpected_eof_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1117,6 +1225,10 @@ fn errors_on_unexpected_word_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1138,7 +1250,7 @@ end end
         err,
         ParseError::UnexpectedDrawToken {
             found: TokenKind::Word("banana".to_string()),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1148,6 +1260,10 @@ end end
 fn errors_on_fill_without_current_path() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1170,7 +1286,7 @@ end end
         err,
         ParseError::NoCurrentPath {
             operator: "fill".to_string(),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1180,6 +1296,10 @@ end end
 fn errors_on_stroke_without_current_path() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1202,7 +1322,7 @@ end end
         err,
         ParseError::NoCurrentPath {
             operator: "stroke".to_string(),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1212,6 +1332,10 @@ end end
 fn errors_on_filling_line_path() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1234,7 +1358,7 @@ end end
         err,
         ParseError::CannotFillPath {
             path: "line".to_string(),
-            line: 10,
+            line: 14,
             column: 20,
         }
     );
@@ -1244,6 +1368,10 @@ end end
 fn errors_on_unpainted_path_before_new_path() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1265,7 +1393,7 @@ end end
     assert_eq!(
         err,
         ParseError::UnpaintedPath {
-            line: 10,
+            line: 14,
             column: 28
         }
     );
@@ -1275,6 +1403,10 @@ end end
 fn errors_on_unpainted_path_at_end_of_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1296,7 +1428,7 @@ end end
     assert_eq!(
         err,
         ParseError::UnpaintedPath {
-            line: 11,
+            line: 15,
             column: 3
         }
     );
@@ -1306,6 +1438,10 @@ end end
 fn errors_on_unused_stack_values_in_draw_block() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1328,7 +1464,7 @@ end end
         err,
         ParseError::UnusedStackValues {
             count: 1,
-            line: 11,
+            line: 15,
             column: 3,
         }
     );
@@ -1338,6 +1474,10 @@ end end
 fn parses_draw_text_style_operators() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1404,6 +1544,10 @@ end end
 fn parses_image_draw_op() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1433,6 +1577,10 @@ end end
 fn errors_when_image_asset_operand_is_not_string() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1462,6 +1610,10 @@ end end
 fn parses_loadimage_draw_op() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1489,6 +1641,10 @@ end end
 fn errors_when_loadimage_alias_operand_is_not_string() {
     let source = r#"%!PSL 0.1
 page 200 100
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1518,6 +1674,10 @@ end end
 fn parses_imagefit_commands() {
     let source = r#"%!PSL 0.1
 page 100 100
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1558,6 +1718,10 @@ slots begin
   B string required
   G string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1595,6 +1759,10 @@ page 612 792
 slots begin
   n int required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1619,6 +1787,10 @@ end end
 fn parses_uppercase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1653,6 +1825,10 @@ fn parses_lowercase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1686,6 +1862,10 @@ fn parses_titlecase_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
 
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1718,6 +1898,10 @@ end end
 fn parses_capitalize_textbox() {
     let source = r#"%!PSL 0.1
 page 612 792
+
+frames begin
+  1 FRAME_1
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
@@ -1754,6 +1938,10 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1787,6 +1975,10 @@ end end
 fn errors_when_barcode_data_operand_is_not_string() {
     let source = r#"%!PSL 0.1
 page 300 200
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1821,6 +2013,10 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1857,6 +2053,10 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1893,6 +2093,10 @@ page 300 200
 slots begin
   sku string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1929,6 +2133,10 @@ page 300 200
 slots begin
   upc string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -1965,6 +2173,10 @@ page 300 200
 slots begin
   ean string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -2001,6 +2213,10 @@ page 300 200
 slots begin
   ean string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -2037,6 +2253,10 @@ page 300 200
 slots begin
   item_id string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -2073,6 +2293,10 @@ page 300 200
 slots begin
   url string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -2109,6 +2333,10 @@ page 300 200
 slots begin
   payload string required
 end
+frames begin
+  1 FRAME_1
+end
+
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_1
 end end
@@ -2142,6 +2370,11 @@ end end
 fn parses_multiple_frame_declarations_and_draw_blocks() {
     let source = r#"%!PSL 0.1
 page 300 200
+
+frames begin
+  1 FRAME_A
+  2 FRAME_B
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_A
@@ -2184,7 +2417,7 @@ end end
 }
 
 #[test]
-fn errors_when_layers_block_is_missing() {
+fn errors_when_frames_block_is_missing() {
     let source = r#"%!PSL 0.1
 page 300 200
 
@@ -2202,7 +2435,7 @@ end end
     assert_eq!(
         err,
         ParseError::ExpectedWord {
-            expected: "layers".to_string(),
+            expected: "frames".to_string(),
             found: TokenKind::Word("draw".to_string()),
             line: 4,
             column: 1,
@@ -2214,6 +2447,10 @@ end end
 fn errors_when_frame_index_in_draw_is_not_declared() {
     let source = r#"%!PSL 0.1
 page 300 200
+
+frames begin
+  1 FRAME_A
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_A
@@ -2235,7 +2472,7 @@ end end
         err,
         ParseError::UnknownFrameIndex {
             index: 2,
-            line: 9,
+            line: 13,
             column: 23,
         }
     );
@@ -2245,6 +2482,10 @@ end end
 fn errors_when_frame_draw_block_begin_is_missing() {
     let source = r#"%!PSL 0.1
 page 300 200
+
+frames begin
+  1 FRAME_A
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_A
@@ -2265,7 +2506,7 @@ end end
         ParseError::ExpectedWord {
             expected: "begin".to_string(),
             found: TokenKind::Word("start".to_string()),
-            line: 9,
+            line: 13,
             column: 25,
         }
     );
@@ -2275,6 +2516,10 @@ end end
 fn errors_on_unexpected_eof_in_frame_draw_block() {
     let source = r#"%!PSL 0.1
 page 300 200
+
+frames begin
+  1 FRAME_A
+end
 
 layers begin
   layer 1 LAYER_1 begin 1 FRAME_A
@@ -2302,6 +2547,10 @@ fn errors_when_frame_decl_index_is_not_u32_integer() {
     let source = r#"%!PSL 0.1
 page 300 200
 
+frames begin
+  1.5 FRAME_A
+end
+
 layers begin
   layer 1 LAYER_1 begin 1.5 FRAME_A
 end end
@@ -2322,7 +2571,7 @@ end end
         ParseError::UnexpectedFrameToken {
             found: TokenKind::Number(1.5),
             line: 5,
-            column: 25,
+            column: 3,
         }
     );
 }

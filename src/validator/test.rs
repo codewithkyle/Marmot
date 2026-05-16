@@ -11,8 +11,10 @@ fn template(slots: Vec<SlotDecl>) -> Template {
         slots,
         fonts: Vec::new(),
         assets: Vec::new(),
+        frames: Vec::new(),
         layers: Vec::new(),
         draw_layers: Vec::new(),
+        draw_entries: Vec::new(),
     }
 }
 

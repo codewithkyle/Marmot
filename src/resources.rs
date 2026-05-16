@@ -11,7 +11,7 @@ use ttf_parser::{Face, name_id};
 
 use crate::{
     package::MarmotPackage,
-    parser::{AssetType, Template},
+    parser::{AssetType, DrawEntry, Template},
 };
 
 const MAX_ASSET_BYTES: u64 = 50 * 1024 * 1024; // NOTE: 50 MiB
@@ -246,12 +246,7 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
     }
 
     let layer_ids: HashSet<&str> = template.layers.iter().map(|l| l.id.as_str()).collect();
-    let frame_ids: HashSet<&str> = template
-        .layers
-        .iter()
-        .flat_map(|layer| layer.frames.iter())
-        .map(|frame| frame.id.as_str())
-        .collect();
+    let frame_ids: HashSet<&str> = template.frames.iter().map(|frame| frame.id.as_str()).collect();
 
     for layer_id in &layer_ids {
         if frame_ids.contains(layer_id) {
@@ -297,13 +292,21 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
         scripts.insert(frame_id, source);
     }
 
-    let drawn_layer_indices: HashSet<u32> = template.draw_layers.iter().map(|l| l.index).collect();
-    let drawn_frame_indices: HashSet<u32> = template
-        .draw_layers
-        .iter()
-        .flat_map(|layer| layer.frames.iter())
-        .map(|frame| frame.index)
-        .collect();
+    let mut drawn_layer_indices: HashSet<u32> = HashSet::new();
+    let mut drawn_frame_indices: HashSet<u32> = HashSet::new();
+    for entry in &template.draw_entries {
+        match entry {
+            DrawEntry::Frame(frame) => {
+                drawn_frame_indices.insert(frame.index);
+            }
+            DrawEntry::Layer(layer) => {
+                drawn_layer_indices.insert(layer.index);
+                for frame in &layer.frames {
+                    drawn_frame_indices.insert(frame.index);
+                }
+            }
+        }
+    }
 
     let mut layer_script_plan = Vec::new();
     for layer in &template.layers {
@@ -319,17 +322,15 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
     }
 
     let mut frame_script_plan = Vec::new();
-    for layer in &template.layers {
-        for frame in &layer.frames {
-            if !drawn_frame_indices.contains(&frame.index) {
-                continue;
-            }
-            if scripts.contains_key(&frame.id) {
-                frame_script_plan.push(FrameScriptPlanEntry {
-                    frame_index: frame.index,
-                    frame_id: frame.id.clone(),
-                });
-            }
+    for frame in &template.frames {
+        if !drawn_frame_indices.contains(&frame.index) {
+            continue;
+        }
+        if scripts.contains_key(&frame.id) {
+            frame_script_plan.push(FrameScriptPlanEntry {
+                frame_index: frame.index,
+                frame_id: frame.id.clone(),
+            });
         }
     }
 
@@ -516,7 +517,7 @@ mod test {
 
         fs::write(
             &template_file,
-            "%!PSL 0.1\npage 10 10\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
+            "%!PSL 0.1\npage 10 10\nframes begin\n  1 FRAME_1\nend\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
         )
         .unwrap();
 
@@ -545,7 +546,7 @@ mod test {
 
         fs::write(
             &template_file,
-            "%!PSL 0.1\npage 10 10\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
+            "%!PSL 0.1\npage 10 10\nframes begin\n  1 FRAME_1\nend\nlayers begin\n  layer 1 LAYER_1 begin\n    1 FRAME_1\n  end\nend\ndraw begin\n  layer 1 begin\n    frame 1 begin\n    end\n  end\nend\n",
         )
         .unwrap();
 
@@ -573,8 +574,10 @@ mod test {
             slots: vec![],
             fonts: vec![],
             assets: vec![],
+            frames: vec![],
             layers: vec![],
             draw_layers: vec![],
+            draw_entries: vec![],
         }
     }
 

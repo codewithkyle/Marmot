@@ -113,8 +113,16 @@ pub struct Template {
     pub slots: Vec<SlotDecl>,
     pub fonts: Vec<FontDecl>,
     pub assets: Vec<AssetDecl>,
+    pub frames: Vec<FrameDecl>,
     pub layers: Vec<LayerDecl>,
     pub draw_layers: Vec<LayerDrawBlock>,
+    pub draw_entries: Vec<DrawEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DrawEntry {
+    Frame(FrameDrawBlock),
+    Layer(LayerDrawBlock),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -431,10 +439,20 @@ impl Parser {
         let fonts = self.parse_optional_fonts()?;
         let assets = self.parse_optional_assets()?;
         let slot_lookup = Self::build_slot_lookup(&slots);
-        let layers = self.parse_layers()?;
+        let frames = self.parse_frames()?;
+        let frame_lookup = Self::build_frame_lookup(&frames);
+        let layers = self.parse_optional_layers()?;
         let layer_lookup = Self::build_layer_lookup(&layers);
-        let frame_lookup = Self::build_frame_lookup(&layers);
-        let draw_layers = self.parse_draw(&slot_lookup, &layer_lookup, &frame_lookup)?;
+        let layer_frame_lookup = Self::build_layer_frame_lookup(&layers);
+        let draw_entries =
+            self.parse_draw(&slot_lookup, &layer_lookup, &frame_lookup, &layer_frame_lookup)?;
+        let draw_layers = draw_entries
+            .iter()
+            .filter_map(|entry| match entry {
+                DrawEntry::Layer(layer) => Some(layer.clone()),
+                DrawEntry::Frame(_) => None,
+            })
+            .collect();
 
         self.expect_eof()?;
 
@@ -444,8 +462,10 @@ impl Parser {
             slots,
             fonts,
             assets,
+            frames,
             layers,
             draw_layers,
+            draw_entries,
         })
     }
 
@@ -703,14 +723,17 @@ impl Parser {
         layers.iter().map(|layer| layer.index).collect()
     }
 
-    fn build_frame_lookup(layers: &[LayerDecl]) -> HashMap<u32, u32> {
-        let mut map = HashMap::new();
+    fn build_frame_lookup(frames: &[FrameDecl]) -> HashSet<u32> {
+        frames.iter().map(|frame| frame.index).collect()
+    }
+
+    fn build_layer_frame_lookup(layers: &[LayerDecl]) -> HashMap<u32, HashSet<u32>> {
+        let mut out = HashMap::new();
         for layer in layers {
-            for frame in &layer.frames {
-                map.insert(frame.index, layer.index);
-            }
+            let indices = layer.frames.iter().map(|frame| frame.index).collect();
+            out.insert(layer.index, indices);
         }
-        map
+        out
     }
 
     fn validate_literal_positive(
@@ -738,12 +761,13 @@ impl Parser {
         &mut self,
         slots: &HashMap<String, SlotType>,
         declared_layers: &HashSet<u32>,
-        declared_frames: &HashMap<u32, u32>,
-    ) -> Result<Vec<LayerDrawBlock>, ParseError> {
+        declared_frames: &HashSet<u32>,
+        layer_frame_lookup: &HashMap<u32, HashSet<u32>>,
+    ) -> Result<Vec<DrawEntry>, ParseError> {
         self.expect_word("draw")?;
         self.expect_word("begin")?;
 
-        let mut layers: Vec<LayerDrawBlock> = Vec::new();
+        let mut entries: Vec<DrawEntry> = Vec::new();
 
         while !self.check_word("end") {
             if self.is_eof() {
@@ -752,19 +776,30 @@ impl Parser {
                 });
             }
 
-            let layer = self.parse_layer_draw_block(slots, declared_layers, declared_frames)?;
-            layers.push(layer);
+            if self.check_word("layer") {
+                let layer = self.parse_layer_draw_block(
+                    slots,
+                    declared_layers,
+                    declared_frames,
+                    layer_frame_lookup,
+                )?;
+                entries.push(DrawEntry::Layer(layer));
+            } else {
+                let frame = self.parse_frame_draw_block(slots, declared_frames, None, None)?;
+                entries.push(DrawEntry::Frame(frame));
+            }
         }
 
         self.expect_word("end")?;
-        Ok(layers)
+        Ok(entries)
     }
 
     fn parse_layer_draw_block(
         &mut self,
         slots: &HashMap<String, SlotType>,
         declared_layers: &HashSet<u32>,
-        declared_frames: &HashMap<u32, u32>,
+        declared_frames: &HashSet<u32>,
+        layer_frame_lookup: &HashMap<u32, HashSet<u32>>,
     ) -> Result<LayerDrawBlock, ParseError> {
         self.expect_word("layer")?;
 
@@ -803,7 +838,12 @@ impl Parser {
                 });
             }
 
-            let frame = self.parse_frame_draw_block(slots, declared_frames, index)?;
+            let frame = self.parse_frame_draw_block(
+                slots,
+                declared_frames,
+                Some(index),
+                layer_frame_lookup.get(&index),
+            )?;
             frames.push(frame);
         }
 
@@ -815,8 +855,9 @@ impl Parser {
     fn parse_frame_draw_block(
         &mut self,
         slots: &HashMap<String, SlotType>,
-        declared_frames: &HashMap<u32, u32>,
-        current_layer_index: u32,
+        declared_frames: &HashSet<u32>,
+        current_layer_index: Option<u32>,
+        layer_frames: Option<&HashSet<u32>>,
     ) -> Result<FrameDrawBlock, ParseError> {
         self.expect_word("frame")?;
 
@@ -836,21 +877,23 @@ impl Parser {
             }
         };
 
-        let Some(frame_layer_index) = declared_frames.get(&index) else {
+        if !declared_frames.contains(&index) {
             return Err(ParseError::UnknownFrameIndex {
                 index,
                 line: idx_token.line,
                 column: idx_token.column,
             });
-        };
+        }
 
-        if *frame_layer_index != current_layer_index {
-            return Err(ParseError::FrameNotInLayer {
-                frame_index: index,
-                layer_index: current_layer_index,
-                line: idx_token.line,
-                column: idx_token.column,
-            });
+        if let Some(layer_index) = current_layer_index {
+            if !layer_frames.is_some_and(|frames| frames.contains(&index)) {
+                return Err(ParseError::FrameNotInLayer {
+                    frame_index: index,
+                    layer_index,
+                    line: idx_token.line,
+                    column: idx_token.column,
+                });
+            }
         }
 
         self.expect_word("begin")?;
@@ -1284,6 +1327,13 @@ impl Parser {
         Ok(fonts)
     }
 
+    fn parse_optional_layers(&mut self) -> Result<Vec<LayerDecl>, ParseError> {
+        if !self.check_word("layers") {
+            return Ok(Vec::new());
+        }
+        self.parse_layers()
+    }
+
     fn parse_layers(&mut self) -> Result<Vec<LayerDecl>, ParseError> {
         self.expect_word("layers")?;
         self.expect_word("begin")?;
@@ -1381,6 +1431,24 @@ impl Parser {
         };
 
         Ok(FrameDecl { index, id })
+    }
+
+    fn parse_frames(&mut self) -> Result<Vec<FrameDecl>, ParseError> {
+        self.expect_word("frames")?;
+        self.expect_word("begin")?;
+
+        let mut frames: Vec<FrameDecl> = Vec::new();
+
+        while !self.check_word("end") {
+            if self.is_eof() {
+                return Err(ParseError::UnexpectedEof {
+                    context: "frames block".to_string(),
+                });
+            }
+            frames.push(self.parse_frame_decl()?);
+        }
+        self.expect_word("end")?;
+        Ok(frames)
     }
 
     fn parse_optional_slots(&mut self) -> Result<Vec<SlotDecl>, ParseError> {

@@ -47,6 +47,15 @@ assets begin
   logo image "assets/sprout-basket.png"
 end
 
+frames begin
+  1 FRAME_BASE
+  2 FRAME_HEADER
+  3 FRAME_OFFER
+  4 FRAME_PRICE
+  5 FRAME_LOGO
+  6 FRAME_CODES
+end
+
 layers begin
   layer 1 LAYER_MAIN begin
     1 FRAME_BASE

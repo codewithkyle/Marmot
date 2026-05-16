@@ -47,7 +47,7 @@ jobs:
       - name: Run tutorial commands
         run: |
           mkdir -p ./out
-          cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/FRAME_BASE_DEFAULT.lua -s ./docs/tutorial/FRAME_BASE_SUPER.lua -s ./docs/tutorial/FRAME_PRICE_DEFAULT.lua -s ./docs/tutorial/FRAME_PRICE_SUPER.lua -s ./docs/tutorial/FRAME_LOGO.lua -s ./docs/tutorial/FRAME_BADGE.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
+          cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/LAYER_DEFAULT_THEME.lua -s ./docs/tutorial/LAYER_SUPER_THEME.lua -s ./docs/tutorial/FRAME_LOGO_DEFAULT.lua -s ./docs/tutorial/FRAME_LOGO_SUPER.lua -s ./docs/tutorial/FRAME_BADGE_DEFAULT.lua -s ./docs/tutorial/FRAME_BADGE_SUPER.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
           cargo run -- check ./out/tutorial.marmot ./docs/tutorial/tutorial.json
           cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.pdf --allow-host-assets
           cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.png --output-type png --dither atkinson --allow-host-assets

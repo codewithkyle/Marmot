@@ -104,7 +104,7 @@ Behavior:
 Notes:
 
 - If template uses slot values in `draw`, rendering without `[data]` fails.
-- Template `layers begin ... end` and nested `draw -> layer -> frame` sections are required.
+- Template `frames begin ... end` is required; `layers begin ... end` is optional. `draw` supports both `frame` and `layer -> frame` sections.
 - `--dpi` applies to PNG output (default `300`, range `72..=1200`).
 - `--dither` applies to PNG output and requires `remap.plt` in the package.
 - `--allow-host-assets` enables runtime host filesystem image reads via PSL `loadimage`.

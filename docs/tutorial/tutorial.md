@@ -11,7 +11,7 @@ This tutorial gives copy/paste steps to render one realistic label from a `.psl`
 Copy/paste this into terminal:
 
 ```bash
-cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/FRAME_BASE_DEFAULT.lua -s ./docs/tutorial/FRAME_BASE_SUPER.lua -s ./docs/tutorial/FRAME_PRICE_DEFAULT.lua -s ./docs/tutorial/FRAME_PRICE_SUPER.lua -s ./docs/tutorial/FRAME_LOGO.lua -s ./docs/tutorial/FRAME_BADGE.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
+cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/LAYER_DEFAULT_THEME.lua -s ./docs/tutorial/LAYER_SUPER_THEME.lua -s ./docs/tutorial/FRAME_LOGO_DEFAULT.lua -s ./docs/tutorial/FRAME_LOGO_SUPER.lua -s ./docs/tutorial/FRAME_BADGE_DEFAULT.lua -s ./docs/tutorial/FRAME_BADGE_SUPER.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
 cargo run -- check ./out/tutorial.marmot ./docs/tutorial/tutorial.json
 cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.pdf
 cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.png --output-type png --dither atkinson
@@ -25,14 +25,17 @@ Expected result:
 
 Notes:
 
-- Logo behavior is script-driven:
-  - if `promo_url` is empty: show logo at QR position
-  - logo is `logo_default` for base/save-5 and `logo_alt` for super-save
-  - if `promo_url` is non-empty: show QR code only (no logo)
-- Badge behavior at old logo position is script-driven:
-  - `regular_price >= 5.0`: `save_5`
-  - `regular_price * get_qty >= 25.0`: `super_save`
-- Super-sale mode (`regular_price * get_qty >= 25.0`) swaps to red background, white offer callout, and black price text.
+- Theme selection is layer-driven:
+  - `LAYER_DEFAULT_THEME` renders when `regular_price * get_qty < 25.0`
+  - `LAYER_SUPER_THEME` renders when `regular_price * get_qty >= 25.0`
+  - this drives base background, price styling, logo variant, and badge family in one place
+- Shared frames (`FRAME_HEADER`, `FRAME_BAR_CODES`, `FRAME_QR_CODES`) are drawn directly in `draw` outside layer blocks.
+- QR/logo behavior is frame-script-driven inside each theme:
+  - if `promo_url` is empty: theme logo frame is visible and QR frame is hidden
+  - if `promo_url` is non-empty: theme logo frame is hidden and QR frame is visible
+- Badge behavior is frame-script-driven:
+  - default theme badge (`save_5`) requires `regular_price >= 5.0`
+  - super theme badge (`super_save`) is explicitly script-gated to super mode
 - `--remap` on `pack` stores the palette in the package as `remap.plt`.
 - `--dither` during `render` or `batch` requires `remap.plt` in the package.
 

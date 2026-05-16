@@ -10,7 +10,7 @@ Scripts are packaged under:
 scripts/<script_id>.lua
 ```
 
-- `<script_id>` can be either a layer id or frame id from PSL `layers begin ... end`.
+- `<script_id>` can be either a layer id from PSL `layers begin ... end` or a frame id from PSL `frames begin ... end`.
 - Missing script for a layer/frame is valid (no-op).
 - Unknown script file (no matching layer/frame id) fails context build.
 - Non-`.lua` files in `scripts/` fail context build.
