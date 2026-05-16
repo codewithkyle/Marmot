@@ -22,7 +22,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::{RenderCache, RenderWarnings, render_pdf, render_png},
+    renderer::{RenderCache, RenderWarnings, render_pdf, render_pdf_with_cache, render_png, render_png_with_cache},
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -967,15 +967,16 @@ fn process_batch_line(
     let render_start = Instant::now();
 
     let outcome = match output_type {
-        OutputType::PDF => render_pdf(
+        OutputType::PDF => render_pdf_with_cache(
             &template.page,
             &template.frames,
             &template.draw_frames,
             &output_path,
             Some(&record),
             &render_context,
+            render_cache,
         ),
-        OutputType::PNG => render_png(
+        OutputType::PNG => render_png_with_cache(
             &template.page,
             &template.frames,
             &template.draw_frames,
@@ -985,6 +986,7 @@ fn process_batch_line(
             *dpi,
             dither,
             remap_source,
+            render_cache,
         ),
     };
 

@@ -97,7 +97,18 @@ fn render_png_for_test(
 ) -> Result<(), RenderError> {
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_png(page, &frames, &draw_frames, output_path, data, context, 74).map(|_| ())
+    render_png(
+        page,
+        &frames,
+        &draw_frames,
+        output_path,
+        data,
+        context,
+        74,
+        None,
+        None,
+    )
+    .map(|_| ())
 }
 
 fn render_pdf_with_cache_for_test(

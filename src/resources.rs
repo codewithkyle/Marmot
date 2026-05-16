@@ -459,6 +459,7 @@ mod test {
             assets: vec![],
             fonts: vec![],
             scripts: vec![],
+            remap_file: None,
         })
         .unwrap();
 
@@ -483,6 +484,7 @@ mod test {
             assets: vec![asset],
             fonts: vec![font],
             scripts: vec![],
+            remap_file: None,
         })
         .unwrap();
 
