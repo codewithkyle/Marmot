@@ -10,7 +10,6 @@ slots begin
   buy_qty int required
   get_qty int required
   promo_url string required
-  customer_logo string required
 end
 
 fonts begin
@@ -18,17 +17,20 @@ fonts begin
 end
 
 assets begin
+  logo_default image "assets/sprout-basket.png"
+  logo_alt image "assets/sprout-basket-alt.png"
   save_5 image "assets/save-5.png"
 end
 
 frames begin
-  1 FRAME_BASE
-  2 FRAME_HEADER
-  3 FRAME_OFFER
-  4 FRAME_PRICE
-  5 FRAME_LOGO
-  6 FRAME_BAR_CODES
-  7 FRAME_QR_CODES
+  1 FRAME_BASE_DEFAULT
+  2 FRAME_BASE_SUPER
+  3 FRAME_HEADER
+  4 FRAME_PRICE_DEFAULT
+  5 FRAME_PRICE_SUPER
+  6 FRAME_LOGO
+  7 FRAME_BAR_CODES
+  8 FRAME_QR_CODES
 end
 
 draw begin
@@ -43,6 +45,16 @@ draw begin
   end
 
   frame 2 begin
+    % Super-sale background + border
+    0.92 0.07 0.16 rgb
+    0 0 432 288 rect fill
+
+    1 1 1 rgb
+    6 strokewidth
+    8 8 416 272 rect stroke
+  end
+
+  frame 3 begin
     % Header band
     0.92 0.07 0.16 rgb
     20 18 392 54 rect fill
@@ -55,18 +67,15 @@ draw begin
     $(product_name) titlecase 28 24 376 40 textbox
   end
 
-  frame 3 begin
-    % Offer callout
+  frame 4 begin
+    % Offer + price stack (default + save-5)
     (kablammo) font
     32 fontsize
     left align
     middle valign
     0.1 0.1 0.1 rgb
     (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
-  end
 
-  frame 4 begin
-    % Price stack
     (kablammo) font
     58 fontsize
     left align
@@ -86,19 +95,45 @@ draw begin
   end
 
   frame 5 begin
-    % Brand image
-    $(customer_logo) (logo) loadimage
-    contain imagefit
-    (logo) 285 90 110 110 image
+    % Offer + price stack (super-sale)
+    (kablammo) font
+    32 fontsize
+    left align
+    middle valign
+    1 1 1 rgb
+    (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
+
+    (kablammo) font
+    58 fontsize
+    left align
+    top valign
+    fit textfit
+    0 0 0 rgb
+    ($) $(sale_price) 2 concat 26 136 220 74 textbox
+
+    (kablammo) font
+    14 fontsize
+    left align
+    top valign
+    fit textfit
+    0 0 0 rgb
+    (sans) font
+    (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
   end
 
   frame 6 begin
+    % Brand image
+    contain imagefit
+    (logo_default) 285 90 110 110 image
+  end
+
+  frame 7 begin
     % Machine-readable codes
     0 0 0 rgb
     $(sku) c128b 26 240 214 28 barcode
   end
 
-  frame 7 begin
+  frame 8 begin
     $(promo_url) qr 355 215 60 60 barcode
   end
 end

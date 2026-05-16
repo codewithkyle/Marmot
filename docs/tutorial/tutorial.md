@@ -11,10 +11,10 @@ This tutorial gives copy/paste steps to render one realistic label from a `.psl`
 Copy/paste this into terminal:
 
 ```bash
-cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -o ./out -s ./docs/tutorial/FRAME_QR_CODES.lua -s ./docs/tutorial/FRAME_LOGO.lua -a test/images/save-5.png --remap ./docs/tutorial/remap.plt
+cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -o ./out -s ./docs/tutorial/FRAME_BASE_DEFAULT.lua -s ./docs/tutorial/FRAME_BASE_SUPER.lua -s ./docs/tutorial/FRAME_PRICE_DEFAULT.lua -s ./docs/tutorial/FRAME_PRICE_SUPER.lua -s ./docs/tutorial/FRAME_LOGO.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
 cargo run -- check ./out/tutorial.marmot ./docs/tutorial/tutorial.json
-cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.pdf --allow-host-assets
-cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.png --output-type png --dither atkinson --allow-host-assets
+cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.pdf
+cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.png --output-type png --dither atkinson
 ```
 
 Expected result:
@@ -25,9 +25,11 @@ Expected result:
 
 Notes:
 
-- `customer_logo` in JSON is host filesystem path loaded at render time via `loadimage`.
-- Relative host paths resolve from current working directory.
-- `--allow-host-assets` is required when `loadimage` reads host files.
+- Logo behavior is script-driven:
+  - default: `logo_default`
+  - if `regular_price >= 5.0`: `save_5`
+  - if `regular_price * get_qty >= 10.0`: `logo_alt`
+- Super-sale mode (`regular_price * get_qty >= 10.0`) swaps to red background, white offer callout, and black price text.
 - `--remap` on `pack` stores the palette in the package as `remap.plt`.
 - `--dither` during `render` or `batch` requires `remap.plt` in the package.
 
@@ -36,7 +38,7 @@ Notes:
 After running the `pack` command above you can batch render 10,000 PDFs using the `batch` command:
 
 ```bash
-cargo run -- batch ./out/tutorial.marmot ./docs/tutorial/tutorial-10k.jsonl --output-dir ./out --output-name "{sku}.pdf" --timings --allow-host-assets
+cargo run -- batch ./out/tutorial.marmot ./docs/tutorial/tutorial-10k.jsonl --output-dir ./out --output-name "{sku}.pdf" --timings
 ```
 
 Example timings output (machine-dependent):
