@@ -1,5 +1,4 @@
-local promo_url = data.getSlot("promo_url") or ""
+local promo_url = trim(default(data.getSlot("promo_url"), ""))
 
-if promo_url == "" then
-    frame.visible = false
-end
+frame.visible = promo_url ~= ""
+frame.value = frame.visible and promo_url or nil

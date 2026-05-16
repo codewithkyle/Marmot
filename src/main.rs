@@ -569,7 +569,8 @@ fn render(args: RenderArgs) -> Result<()> {
         OutputType::PDF => render_pdf(
             &template.page,
             &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_entries,
             &args.output_file,
             data.as_ref(),
             &render_context,
@@ -579,7 +580,8 @@ fn render(args: RenderArgs) -> Result<()> {
         OutputType::PNG => render_png(
             &template.page,
             &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_entries,
             &args.output_file,
             data.as_ref(),
             &render_context,
@@ -1008,7 +1010,8 @@ fn process_batch_line(
         OutputType::PDF => render_pdf_with_cache(
             &template.page,
             &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_entries,
             &output_path,
             Some(&record),
             &render_context,
@@ -1018,7 +1021,8 @@ fn process_batch_line(
         OutputType::PNG => render_png_with_cache(
             &template.page,
             &template.frames,
-            &template.draw_frames,
+            &template.layers,
+            &template.draw_entries,
             &output_path,
             Some(&record),
             &render_context,

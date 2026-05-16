@@ -24,7 +24,7 @@ use crate::{
 };
 use crate::{
     parser::{
-        AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page,
+        AssetType, BarcodeSymbology, DrawEntry, DrawOp, FrameDecl, LayerDecl, NumberValue, Page,
         TextValue,
     },
     scripting::LuaRuntime,
@@ -52,6 +52,17 @@ pub struct RenderOutcome {
 pub struct FrameRuntimeState {
     pub visible: bool,
     pub value_override: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayerRuntimeState {
+    pub visible: bool,
+}
+
+impl LayerRuntimeState {
+    pub fn default_visible() -> Self {
+        Self { visible: true }
+    }
 }
 
 #[allow(dead_code)]
@@ -360,6 +371,42 @@ impl Default for RenderState {
     }
 }
 
+fn run_layer_scripts(
+    layer_state: &mut HashMap<u32, LayerRuntimeState>,
+    data: Option<&Value>,
+    context: &RenderContext,
+    runtime: &mut LuaRuntime,
+) -> Result<(), RenderError> {
+    if context.scripts.is_empty() {
+        return Ok(());
+    }
+
+    let prepared_data = runtime
+        .build_data_api(data)
+        .map_err(|err| RenderError::ScriptRuntime {
+            frame_index: 0,
+            frame_id: "<data>".to_string(),
+            message: err.to_string(),
+        })?;
+
+    for planned in &context.layer_script_plan {
+        let Some(source) = context.scripts.get(&planned.layer_id) else {
+            continue;
+        };
+
+        let updated = runtime
+            .exec_layer_with_data(&planned.layer_id, source, &prepared_data)
+            .map_err(|err| RenderError::ScriptRuntime {
+                frame_index: planned.layer_index,
+                frame_id: planned.layer_id.clone(),
+                message: err.to_string(),
+            })?;
+
+        layer_state.insert(planned.layer_index, updated);
+    }
+    Ok(())
+}
+
 fn run_frame_scripts(
     frame_state: &mut HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
@@ -378,7 +425,7 @@ fn run_frame_scripts(
             message: err.to_string(),
         })?;
 
-    for planned in &context.script_plan {
+    for planned in &context.frame_script_plan {
         let Some(source) = context.scripts.get(&planned.frame_id) else {
             continue;
         };
@@ -1564,14 +1611,45 @@ fn resolve_current_font(context: &RenderContext, requested: &str) -> CurrentFont
     }
 }
 
-fn should_render_frame(state: Option<&FrameRuntimeState>) -> bool {
-    let Some(state) = state else {
-        return true;
-    };
-    state.visible
+fn should_render_frame(
+    layer_state: Option<&LayerRuntimeState>,
+    frame_state: Option<&FrameRuntimeState>,
+) -> bool {
+    if let Some(layer) = layer_state {
+        if !layer.visible {
+            return false;
+        }
+    }
+
+    if let Some(frame) = frame_state {
+        if !frame.visible {
+            return false;
+        }
+    }
+
+    true
 }
 
-fn build_initial_frame_state(frames: &[FrameDecl]) -> HashMap<u32, FrameRuntimeState> {
+fn build_initial_layer_state(layers: &[LayerDecl]) -> HashMap<u32, LayerRuntimeState> {
+    let mut out = HashMap::new();
+    for layer in layers {
+        out.insert(layer.index, LayerRuntimeState::default_visible());
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn build_initial_frame_state(layers: &[LayerDecl]) -> HashMap<u32, FrameRuntimeState> {
+    let mut out = HashMap::new();
+    for layer in layers {
+        for frame in &layer.frames {
+            out.insert(frame.index, FrameRuntimeState::default_visible());
+        }
+    }
+    out
+}
+
+fn build_initial_frame_state_from_frames(frames: &[FrameDecl]) -> HashMap<u32, FrameRuntimeState> {
     let mut out = HashMap::new();
     for frame in frames {
         out.insert(frame.index, FrameRuntimeState::default_visible());
@@ -1595,9 +1673,190 @@ fn warn_if_empty_set_value(
     }
 }
 
+fn execute_draw_op(
+    op: &DrawOp,
+    runtime: Option<&FrameRuntimeState>,
+    data: Option<&Value>,
+    state: &mut RenderState,
+    pending_path: &mut Option<PendingPath>,
+    layout: &pango::Layout,
+    ctx: &Context,
+    context: &RenderContext,
+    cache: &mut RenderCache,
+    host_assets: &HostAssetPolicy,
+) -> Result<(), RenderError> {
+    match op {
+        DrawOp::SetImageFit { fit } => {
+            state.image_fit = *fit;
+        }
+        DrawOp::SetFontFamily { font } => {
+            let requested = eval_text(font, data)?;
+            state.font = resolve_current_font(context, &requested);
+        }
+        DrawOp::SetTextFitMaxSize { max } => {
+            state.text_fit_max_size = eval_number(max, data)?;
+        }
+        DrawOp::SetTextFitMinSize { min } => {
+            state.text_fit_min_size = eval_number(min, data)?;
+        }
+        DrawOp::SetTextFit { fit } => {
+            state.text_fit = *fit;
+        }
+        DrawOp::SetLineBreakMode { line_break } => {
+            state.line_break = *line_break;
+        }
+        DrawOp::SetVerticalAlignment { align } => {
+            state.vertical_align = *align;
+        }
+        DrawOp::SetTextAlignment { align } => {
+            state.text_align = *align;
+        }
+        DrawOp::SetRgb { r, g, b } => {
+            ctx.set_source_rgb(
+                eval_number(r, data)?.clamp(0.0, 1.0),
+                eval_number(g, data)?.clamp(0.0, 1.0),
+                eval_number(b, data)?.clamp(0.0, 1.0),
+            );
+        }
+        DrawOp::SetCmyk { c, m, y, k } => {
+            let c_actual = eval_number(c, data)?;
+            let m_actual = eval_number(m, data)?;
+            let y_actual = eval_number(y, data)?;
+            let k_actual = eval_number(k, data)?;
+
+            let r = (1.0 - c_actual) * (1.0 - k_actual);
+            let g = (1.0 - m_actual) * (1.0 - k_actual);
+            let b = (1.0 - y_actual) * (1.0 - k_actual);
+
+            ctx.set_source_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
+        }
+        DrawOp::SetStrokeWidth { width } => {
+            ctx.set_line_width(eval_number(width, data)?);
+        }
+        DrawOp::SetFontSize { size } => {
+            state.font_size = eval_number(size, data)?;
+        }
+        DrawOp::LinePath { x1, y1, x2, y2 } => {
+            *pending_path = Some(PendingPath::Line {
+                x1: eval_number(x1, data)?,
+                y1: eval_number(y1, data)?,
+                x2: eval_number(x2, data)?,
+                y2: eval_number(y2, data)?,
+            });
+        }
+        DrawOp::RectPath {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            *pending_path = Some(PendingPath::Rect {
+                x: eval_number(x, data)?,
+                y: eval_number(y, data)?,
+                width: eval_number(width, data)?,
+                height: eval_number(height, data)?,
+            });
+        }
+        DrawOp::Stroke => {
+            let path = pending_path
+                .take()
+                .expect("parser should prevent stroke without a current path");
+            match path {
+                PendingPath::Line { x1, y1, x2, y2 } => {
+                    ctx.move_to(x1, y1);
+                    ctx.line_to(x2, y2);
+                    ctx.stroke()?;
+                }
+                PendingPath::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    ctx.rectangle(x, y, width, height);
+                    ctx.stroke()?;
+                }
+            }
+        }
+        DrawOp::Fill => {
+            let path = pending_path
+                .take()
+                .expect("parser should prevent fill without a current path");
+            match path {
+                PendingPath::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    ctx.rectangle(x, y, width, height);
+                    ctx.fill()?;
+                }
+                PendingPath::Line { .. } => {
+                    panic!("parser should prevent filling a line");
+                }
+            }
+        }
+        DrawOp::Image {
+            asset,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                Some(v) if !v.is_empty() => v.clone(),
+                _ => eval_text(asset, data)?,
+            };
+            render_image(
+                ctx,
+                context,
+                cache,
+                &value,
+                state.image_fit,
+                eval_number(x, data)?,
+                eval_number(y, data)?,
+                eval_number(width, data)?,
+                eval_number(height, data)?,
+            )?;
+        }
+        DrawOp::LoadImage { path, alias } => {
+            let path = eval_text(path, data)?;
+            let alias = eval_text(alias, data)?;
+            load_runtime_image_asset(cache, host_assets, &alias, &path)?;
+        }
+        DrawOp::TextBox {
+            text,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                Some(v) if !v.is_empty() => v.clone(),
+                _ => eval_text(text, data)?,
+            };
+            render_textbox(
+                layout,
+                ctx,
+                state,
+                &value,
+                eval_number(x, data)?,
+                eval_number(y, data)?,
+                eval_number(width, data)?,
+                eval_number(height, data)?,
+            )?;
+        }
+        DrawOp::Barcode { .. } => unreachable!("barcode handled in execute_draw"),
+    }
+
+    Ok(())
+}
+
 fn execute_draw(
     ctx: &Context,
-    draw_frames: &[FrameDrawBlock],
+    draw_entries: &[DrawEntry],
+    layer_state: &HashMap<u32, LayerRuntimeState>,
     frame_state: &HashMap<u32, FrameRuntimeState>,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1609,17 +1868,104 @@ fn execute_draw(
     let layout = pangocairo::functions::create_layout(ctx);
     let mut warnings = RenderWarnings::default();
 
-    for frame in draw_frames {
-        let runtime = frame_state.get(&frame.index);
+    for entry in draw_entries {
+        match entry {
+            DrawEntry::Frame(frame) => {
+                let runtime = frame_state.get(&frame.index);
 
-        warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+                warn_if_empty_set_value(frame.index, runtime, &mut warnings);
 
-        if !should_render_frame(runtime) {
-            continue;
-        }
+                if !should_render_frame(None, runtime) {
+                    continue;
+                }
 
-        for op in &frame.ops {
-            match op {
+                for op in &frame.ops {
+                    match op {
+                        DrawOp::Barcode {
+                            value,
+                            symbology,
+                            x,
+                            y,
+                            width,
+                            height,
+                        } => {
+                            let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                                Some(v) if !v.is_empty() => v.clone(),
+                                _ => eval_text(value, data)?,
+                            };
+                            let x = eval_number(x, data)?;
+                            let y = eval_number(y, data)?;
+                            let width = eval_number(width, data)?;
+                            let height = eval_number(height, data)?;
+
+                            match symbology {
+                                BarcodeSymbology::Code39 => {
+                                    render_code39(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::Code128A => {
+                                    render_code128(ctx, symbology, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::Code128B => {
+                                    render_code128(ctx, symbology, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::Code128C => {
+                                    render_code128(ctx, symbology, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::UPCA => {
+                                    render_upca(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::EAN13 => {
+                                    render_ean13(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::EAN8 => {
+                                    render_ean8(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::MSI => {
+                                    render_msi(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::QR => {
+                                    render_qr(ctx, &value, x, y, width, height)?;
+                                }
+                                BarcodeSymbology::DataMatrix => {
+                                    render_datamatrix(ctx, &value, x, y, width, height)?;
+                                }
+                            }
+                        }
+                        _ => {
+                            execute_draw_op(
+                                op,
+                                runtime,
+                                data,
+                                &mut state,
+                                &mut pending_path,
+                                &layout,
+                                ctx,
+                                context,
+                                cache,
+                                host_assets,
+                            )?;
+                        }
+                    }
+                }
+            }
+            DrawEntry::Layer(layer) => {
+                let runtime_layer = layer_state.get(&layer.index);
+
+                if !should_render_frame(runtime_layer, None) {
+                    continue;
+                }
+
+                for frame in &layer.frames {
+                    let runtime = frame_state.get(&frame.index);
+
+                    warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+
+                    if !should_render_frame(runtime_layer, runtime) {
+                        continue;
+                    }
+
+                    for op in &frame.ops {
+                        match op {
                 DrawOp::Barcode {
                     value,
                     symbology,
@@ -1670,168 +2016,42 @@ fn execute_draw(
                         }
                     }
                 }
-                DrawOp::SetImageFit { fit } => {
-                    state.image_fit = *fit;
-                }
-                DrawOp::SetFontFamily { font } => {
-                    let requested = eval_text(font, data)?;
-                    state.font = resolve_current_font(context, &requested);
-                }
-                DrawOp::SetTextFitMaxSize { max } => {
-                    state.text_fit_max_size = eval_number(max, data)?;
-                }
-                DrawOp::SetTextFitMinSize { min } => {
-                    state.text_fit_min_size = eval_number(min, data)?;
-                }
-                DrawOp::SetTextFit { fit } => {
-                    state.text_fit = *fit;
-                }
-                DrawOp::SetLineBreakMode { line_break } => {
-                    state.line_break = *line_break;
-                }
-                DrawOp::SetVerticalAlignment { align } => {
-                    state.vertical_align = *align;
-                }
-                DrawOp::SetTextAlignment { align } => {
-                    state.text_align = *align;
-                }
-                DrawOp::SetRgb { r, g, b } => {
-                    ctx.set_source_rgb(
-                        eval_number(r, data)?.clamp(0.0, 1.0),
-                        eval_number(g, data)?.clamp(0.0, 1.0),
-                        eval_number(b, data)?.clamp(0.0, 1.0),
-                    );
-                }
-                DrawOp::SetCmyk { c, m, y, k } => {
-                    let c_actual = eval_number(c, data)?;
-                    let m_actual = eval_number(m, data)?;
-                    let y_actual = eval_number(y, data)?;
-                    let k_actual = eval_number(k, data)?;
-
-                    let r = (1.0 - c_actual) * (1.0 - k_actual);
-                    let g = (1.0 - m_actual) * (1.0 - k_actual);
-                    let b = (1.0 - y_actual) * (1.0 - k_actual);
-
-                    ctx.set_source_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
-                }
-                DrawOp::SetStrokeWidth { width } => {
-                    ctx.set_line_width(eval_number(width, data)?);
-                }
-                DrawOp::SetFontSize { size } => {
-                    state.font_size = eval_number(size, data)?;
-                }
-                DrawOp::LinePath { x1, y1, x2, y2 } => {
-                    pending_path = Some(PendingPath::Line {
-                        x1: eval_number(x1, data)?,
-                        y1: eval_number(y1, data)?,
-                        x2: eval_number(x2, data)?,
-                        y2: eval_number(y2, data)?,
-                    });
-                }
-                DrawOp::RectPath {
-                    x,
-                    y,
-                    width,
-                    height,
-                } => {
-                    pending_path = Some(PendingPath::Rect {
-                        x: eval_number(x, data)?,
-                        y: eval_number(y, data)?,
-                        width: eval_number(width, data)?,
-                        height: eval_number(height, data)?,
-                    });
-                }
-                DrawOp::Stroke => {
-                    let path = pending_path
-                        .take()
-                        .expect("parser should prevent stroke without a current path");
-                    match path {
-                        PendingPath::Line { x1, y1, x2, y2 } => {
-                            ctx.move_to(x1, y1);
-                            ctx.line_to(x2, y2);
-                            ctx.stroke()?;
-                        }
-                        PendingPath::Rect {
-                            x,
-                            y,
-                            width,
-                            height,
-                        } => {
-                            ctx.rectangle(x, y, width, height);
-                            ctx.stroke()?;
+                        DrawOp::SetImageFit { .. }
+                        | DrawOp::SetFontFamily { .. }
+                        | DrawOp::SetTextFitMaxSize { .. }
+                        | DrawOp::SetTextFitMinSize { .. }
+                        | DrawOp::SetTextFit { .. }
+                        | DrawOp::SetLineBreakMode { .. }
+                        | DrawOp::SetVerticalAlignment { .. }
+                        | DrawOp::SetTextAlignment { .. }
+                        | DrawOp::SetRgb { .. }
+                        | DrawOp::SetCmyk { .. }
+                        | DrawOp::SetStrokeWidth { .. }
+                        | DrawOp::SetFontSize { .. }
+                        | DrawOp::LinePath { .. }
+                        | DrawOp::RectPath { .. }
+                        | DrawOp::Stroke
+                        | DrawOp::Fill
+                        | DrawOp::Image { .. }
+                        | DrawOp::LoadImage { .. }
+                        | DrawOp::TextBox { .. } => {
+                            execute_draw_op(
+                                op,
+                                runtime,
+                                data,
+                                &mut state,
+                                &mut pending_path,
+                                &layout,
+                                ctx,
+                                context,
+                                cache,
+                                host_assets,
+                            )?;
                         }
                     }
-                }
-                DrawOp::Fill => {
-                    let path = pending_path
-                        .take()
-                        .expect("parser should prevent fill without a current path");
-                    match path {
-                        PendingPath::Rect {
-                            x,
-                            y,
-                            width,
-                            height,
-                        } => {
-                            ctx.rectangle(x, y, width, height);
-                            ctx.fill()?;
-                        }
-                        PendingPath::Line { .. } => {
-                            panic!("parser should prevent filling a line");
-                        }
-                    }
-                }
-                DrawOp::Image {
-                    asset,
-                    x,
-                    y,
-                    width,
-                    height,
-                } => {
-                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
-                        Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(asset, data)?,
-                    };
-                    render_image(
-                        ctx,
-                        context,
-                        cache,
-                        &value,
-                        state.image_fit,
-                        eval_number(x, data)?,
-                        eval_number(y, data)?,
-                        eval_number(width, data)?,
-                        eval_number(height, data)?,
-                    )?;
-                }
-                DrawOp::LoadImage { path, alias } => {
-                    let path = eval_text(path, data)?;
-                    let alias = eval_text(alias, data)?;
-                    load_runtime_image_asset(cache, host_assets, &alias, &path)?;
-                }
-                DrawOp::TextBox {
-                    text,
-                    x,
-                    y,
-                    width,
-                    height,
-                } => {
-                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
-                        Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(text, data)?,
-                    };
-                    render_textbox(
-                        &layout,
-                        ctx,
-                        &state,
-                        &value,
-                        eval_number(x, data)?,
-                        eval_number(y, data)?,
-                        eval_number(width, data)?,
-                        eval_number(height, data)?,
-                    )?;
                 }
             }
+        }
         }
     }
 
@@ -1841,7 +2061,8 @@ fn execute_draw(
 pub fn render_pdf(
     page: &Page,
     frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1851,7 +2072,8 @@ pub fn render_pdf(
     render_pdf_with_cache(
         page,
         frames,
-        draw_frames,
+        layers,
+        draw_entries,
         output_path,
         data,
         context,
@@ -1863,7 +2085,8 @@ pub fn render_pdf(
 pub fn render_pdf_with_cache(
     page: &Page,
     frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1872,15 +2095,18 @@ pub fn render_pdf_with_cache(
 ) -> Result<RenderOutcome, RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
-    let mut frame_state = build_initial_frame_state(frames);
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state_from_frames(frames);
     let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
     let warnings = execute_draw(
         &ctx,
-        draw_frames,
+        draw_entries,
+        &layer_state,
         &frame_state,
         data,
         context,
@@ -1900,7 +2126,8 @@ pub fn render_pdf_with_cache(
 pub fn render_png(
     page: &Page,
     frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1913,7 +2140,8 @@ pub fn render_png(
     render_png_with_cache(
         page,
         frames,
-        draw_frames,
+        layers,
+        draw_entries,
         output_path,
         data,
         context,
@@ -1928,7 +2156,8 @@ pub fn render_png(
 pub fn render_png_with_cache(
     page: &Page,
     frames: &[FrameDecl],
-    draw_frames: &[FrameDrawBlock],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
@@ -1946,15 +2175,18 @@ pub fn render_png_with_cache(
     let ctx = Context::new(&surface)?;
     ctx.scale(scale, scale);
 
-    let mut frame_state = build_initial_frame_state(frames);
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state_from_frames(frames);
     let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
     let warnings = execute_draw(
         &ctx,
-        draw_frames,
+        draw_entries,
+        &layer_state,
         &frame_state,
         data,
         context,

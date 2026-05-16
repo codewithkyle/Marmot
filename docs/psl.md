@@ -14,8 +14,19 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_1
+  end
+end
+
 draw begin
   frame 1 begin
+  end
+
+  layer 1 begin
+  frame 1 begin
+  end
   end
 end
 ```
@@ -30,13 +41,15 @@ Current parser expects this order:
 4. Optional `fonts begin ... end`
 5. Optional `assets begin ... end`
 6. Required `frames begin ... end`
-7. Required `draw begin ... end`
+7. Optional `layers begin ... end`
+8. Required `draw begin ... end`
 
 Notes:
 
 - `slots`, `fonts`, and `assets` are optional blocks.
 - `frames` and `draw` are required blocks.
-- Block order is fixed: `slots` -> `fonts` -> `assets` -> `frames` -> `draw`.
+- `slots`, `fonts`, `assets`, and `layers` are optional blocks.
+- Block order is fixed: `slots` -> `fonts` -> `assets` -> `frames` -> `layers` -> `draw`.
 
 ## Lexical Tokens
 
@@ -209,9 +222,30 @@ end
 
 Rules:
 
-- `<u32>` must be a non-negative integer in `u32` range.
-- `<id>` must be a word token.
-- Frame indices are referenced by `draw` frame blocks.
+- Frame `<u32>` must be a non-negative integer in `u32` range.
+- Frame `<id>` must be a word token.
+
+## Layers Block
+
+Syntax:
+
+```psl
+layers begin
+  layer <u32> <id> begin
+    <u32> <frame_id>
+    ...
+  end
+end
+```
+
+Rules (optional block):
+
+- Layer `<u32>` must be a non-negative integer in `u32` range.
+- Layer `<id>` must be a word token.
+- Frame `<u32>` must be a non-negative integer in `u32` range.
+- Frame `<frame_id>` must be a word token.
+- Layer frame entries are metadata references to declared frames.
+- Layer frame indices are referenced by `draw` layer blocks.
 
 ## Draw Block
 
@@ -222,26 +256,38 @@ draw begin
   frame <u32> begin
     ...operators...
   end
-  ...
+
+  layer <u32> begin
+    frame <u32> begin
+      ...operators...
+    end
+  end
 end
 ```
 
 Rules:
 
-- Every draw block entry must be a `frame <u32> begin ... end` section.
+- Draw block entries may be either:
+  - `frame <u32> begin ... end` (standalone/shared frame)
+  - `layer <u32> begin ... end` containing one or more frame blocks
 - Referenced frame index must exist in the `frames` block.
+- Referenced layer index must exist in the `layers` block.
+- Frames inside a draw layer must belong to that layer declaration.
 - Each frame section has its own stack/path validation.
 
 ## Scripting Integration
 
 PSL itself does not embed Lua syntax. Scripts are external package files.
 
-- Script path: `scripts/<frame_id>.lua` inside `.marmot` package.
-- `<frame_id>` must match frame id declared in `frames begin ... end`.
-- Missing script for a frame is valid (no-op).
-- Unknown script file (no matching frame id) fails context build.
+- Script path: `scripts/<script_id>.lua` inside `.marmot` package.
+- `<script_id>` may be either a layer id from `layers begin ... end` or a frame id from `frames begin ... end`.
+- Missing scripts are valid (no-op).
+- Unknown script file (no matching layer/frame id) fails context build.
+- A layer id and frame id cannot share the same script id.
 
-At render time, script can mutate per-frame runtime properties:
+At render time, scripts can mutate runtime properties:
+
+- `layer.visible: boolean`
 
 - `frame.visible: boolean`
 - `frame.value: string | nil`
@@ -256,17 +302,24 @@ Override behavior:
 
 For full API and runtime details, see [`docs/scripting.md`](docs/scripting.md).
 
-## Frame Blocks in `draw`
+## Frame/Layer Blocks in `draw`
 
-`draw` is frame-scoped. This means all rendering operators must appear inside a frame block.
+`draw` is always frame-scoped. Layer blocks are optional grouping wrappers.
 
 Valid shape:
 
 ```psl
 draw begin
+  frame 3 begin
+    0 0 0 rgb
+    20 20 100 20 rect fill
+  end
+
+  layer 1 begin
   frame 1 begin
     1 0 0 rgb
     10 10 100 40 rect fill
+  end
   end
 end
 ```
@@ -280,7 +333,7 @@ draw begin
 end
 ```
 
-In other words, `draw begin ... end` only contains one or more `frame <u32> begin ... end` blocks, and each frame block contains the actual draw operations.
+In other words, `draw begin ... end` contains one or more `frame <u32> begin ... end` and/or `layer <u32> begin ... end` blocks, and the actual draw operators always live inside frame blocks.
 
 The draw language is stack-based.
 
@@ -511,12 +564,15 @@ fonts begin
   kablammo "fonts/Kablammo.ttf"
 end
 
-frames begin
-  1 FRAME_BASE
-  2 FRAME_TITLE
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_BASE
+    2 FRAME_TITLE
+  end
 end
 
 draw begin
+  layer 1 begin
   frame 1 begin
     1 1 1 rgb
     0 0 300 120 rect fill
@@ -534,6 +590,7 @@ draw begin
     grow textfit
     (kablammo) font
     $(product_name) 20 40 260 40 textbox
+  end
   end
 end
 ```

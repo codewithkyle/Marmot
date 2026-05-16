@@ -2,23 +2,51 @@ use std::{collections::HashMap, path::PathBuf};
 
 use super::*;
 use crate::{
-    parser::{DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page},
-    resources::{RegisteredAsset, ScriptPlanEntry},
+    parser::{
+        DrawEntry, DrawOp, FrameDecl, FrameDrawBlock, LayerDecl, LayerDrawBlock, NumberValue,
+        Page,
+    },
+    resources::{FrameScriptPlanEntry, LayerScriptPlanEntry, RegisteredAsset},
 };
 use serde_json::Value;
 
-fn default_frames() -> Vec<FrameDecl> {
-    vec![FrameDecl {
+fn default_layers() -> Vec<LayerDecl> {
+    vec![LayerDecl {
         index: 1,
-        id: "FRAME_1".to_string(),
+        id: "LAYER_1".to_string(),
+        frames: vec![FrameDecl {
+            index: 1,
+            id: "FRAME_1".to_string(),
+        }],
     }]
 }
 
-fn as_draw_frames(draw_ops: &[DrawOp]) -> Vec<FrameDrawBlock> {
-    vec![FrameDrawBlock {
+fn as_draw_layers(draw_ops: &[DrawOp]) -> Vec<LayerDrawBlock> {
+    vec![LayerDrawBlock {
+        index: 1,
+        frames: vec![FrameDrawBlock {
+            index: 1,
+            ops: draw_ops.to_vec(),
+        }],
+    }]
+}
+
+fn default_frames() -> Vec<FrameDecl> {
+    default_layers()[0].frames.clone()
+}
+
+fn as_draw_entries(draw_ops: &[DrawOp]) -> Vec<DrawEntry> {
+    as_draw_layers(draw_ops)
+        .into_iter()
+        .map(DrawEntry::Layer)
+        .collect()
+}
+
+fn as_top_level_draw_entries(draw_ops: &[DrawOp]) -> Vec<DrawEntry> {
+    vec![DrawEntry::Frame(FrameDrawBlock {
         index: 1,
         ops: draw_ops.to_vec(),
-    }]
+    })]
 }
 
 fn empty_render_context() -> RenderContext {
@@ -26,7 +54,8 @@ fn empty_render_context() -> RenderContext {
         fonts: HashMap::new(),
         assets: HashMap::new(),
         scripts: HashMap::new(),
-        script_plan: Vec::new(),
+        layer_script_plan: Vec::new(),
+        frame_script_plan: Vec::new(),
     }
 }
 
@@ -46,14 +75,15 @@ fn render_context_with_assets(assets: HashMap<String, RegisteredAsset>) -> Rende
         fonts: HashMap::new(),
         assets,
         scripts: HashMap::new(),
-        script_plan: Vec::new(),
+        layer_script_plan: Vec::new(),
+        frame_script_plan: Vec::new(),
     }
 }
 
 fn scripted_context_for_default_frame(scripts: HashMap<String, String>) -> RenderContext {
-    let mut script_plan = Vec::new();
+    let mut frame_script_plan = Vec::new();
     if scripts.contains_key("FRAME_1") {
-        script_plan.push(ScriptPlanEntry {
+        frame_script_plan.push(FrameScriptPlanEntry {
             frame_index: 1,
             frame_id: "FRAME_1".to_string(),
         });
@@ -63,7 +93,26 @@ fn scripted_context_for_default_frame(scripts: HashMap<String, String>) -> Rende
         fonts: HashMap::new(),
         assets: HashMap::new(),
         scripts,
-        script_plan,
+        layer_script_plan: Vec::new(),
+        frame_script_plan,
+    }
+}
+
+fn scripted_context_for_default_layer(scripts: HashMap<String, String>) -> RenderContext {
+    let mut layer_script_plan = Vec::new();
+    if scripts.contains_key("LAYER_1") {
+        layer_script_plan.push(LayerScriptPlanEntry {
+            layer_index: 1,
+            layer_id: "LAYER_1".to_string(),
+        });
+    }
+
+    RenderContext {
+        fonts: HashMap::new(),
+        assets: HashMap::new(),
+        scripts,
+        layer_script_plan,
+        frame_script_plan: Vec::new(),
     }
 }
 
@@ -72,13 +121,15 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
     let ctx = cairo::Context::new(&surface)?;
     let mut cache = RenderCache::default();
     let render_context = empty_render_context();
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
 
     execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         data,
         &render_context,
@@ -95,12 +146,36 @@ fn render_pdf_for_test(
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
+    let layers = default_layers();
     let frames = default_frames();
-    let draw_frames = as_draw_frames(draw_ops);
+    let draw_entries = as_draw_entries(draw_ops);
     render_pdf(
         page,
         &frames,
-        &draw_frames,
+        &layers,
+        &draw_entries,
+        output_path,
+        data,
+        context,
+        &host_assets_disabled(),
+    )
+    .map(|_| ())
+}
+
+fn render_pdf_for_test_with_entries(
+    page: &Page,
+    draw_entries: &[DrawEntry],
+    output_path: &std::path::Path,
+    data: Option<&Value>,
+    context: &RenderContext,
+) -> Result<(), RenderError> {
+    let layers = default_layers();
+    let frames = default_frames();
+    render_pdf(
+        page,
+        &frames,
+        &layers,
+        draw_entries,
         output_path,
         data,
         context,
@@ -116,12 +191,14 @@ fn render_png_for_test(
     data: Option<&Value>,
     context: &RenderContext,
 ) -> Result<(), RenderError> {
+    let layers = default_layers();
     let frames = default_frames();
-    let draw_frames = as_draw_frames(draw_ops);
+    let draw_entries = as_draw_entries(draw_ops);
     render_png(
         page,
         &frames,
-        &draw_frames,
+        &layers,
+        &draw_entries,
         output_path,
         data,
         context,
@@ -141,16 +218,19 @@ fn render_pdf_with_cache_for_test(
     context: &RenderContext,
     cache: &mut RenderCache,
 ) -> Result<(), RenderError> {
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(draw_ops);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(draw_ops);
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
 
-    let mut frame_state = build_initial_frame_state(&frames);
+    let mut layer_state = build_initial_layer_state(&layers);
+    let mut frame_state = build_initial_frame_state(&layers);
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
     execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         data,
         context,
@@ -845,13 +925,15 @@ fn loadimage_errors_when_host_assets_disabled() {
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
     let context = empty_render_context();
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(&draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
 
     let err = execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         None,
         &context,
@@ -893,13 +975,15 @@ fn loadimage_reads_host_asset_and_renders_image() {
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
     let context = empty_render_context();
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(&draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
 
     execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         None,
         &context,
@@ -954,13 +1038,15 @@ fn loadimage_reuses_cache_for_same_path_under_two_aliases() {
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
     let context = empty_render_context();
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(&draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
 
     execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         None,
         &context,
@@ -1002,13 +1088,15 @@ fn loadimage_accepts_absolute_host_path() {
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
     let context = empty_render_context();
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(&draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
 
     execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         None,
         &context,
@@ -1289,7 +1377,8 @@ fn errors_when_registered_image_geometry_is_invalid() {
         fonts: HashMap::<String, RegisteredFont>::new(),
         assets,
         scripts: HashMap::new(),
-        script_plan: Vec::new(),
+        layer_script_plan: Vec::new(),
+        frame_script_plan: Vec::new(),
     };
 
     let page = Page {
@@ -2010,12 +2099,14 @@ fn errors_when_image_geometry_is_invalid() {
     let ctx = cairo::Context::new(&surface).unwrap();
     let mut cache = RenderCache::default();
     let context = render_context_with_assets(assets);
-    let frames = default_frames();
-    let draw_frames = as_draw_frames(&draw_ops);
-    let frame_state = build_initial_frame_state(&frames);
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let frame_state = build_initial_frame_state(&layers);
     let err = execute_draw(
         &ctx,
-        &draw_frames,
+        &draw_entries,
+        &layer_state,
         &frame_state,
         None,
         &context,
@@ -2052,6 +2143,69 @@ fn script_visibility_false_skips_frame_draw() {
     scripts.insert("FRAME_1".to_string(), "frame.visible = false".to_string());
 
     let render_context = scripted_context_for_default_frame(scripts);
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
+fn script_visibility_false_skips_top_level_frame_draw() {
+    use crate::parser::{BarcodeSymbology, TextValue};
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Slot("sku".to_string()),
+        symbology: BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(60.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let draw_entries = as_top_level_draw_entries(&draw_ops);
+    let output_path = std::env::temp_dir().join("marmot_top_level_frame_visibility_skip_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("FRAME_1".to_string(), "frame.visible = false".to_string());
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    // If top-level frame visibility is ignored, this would fail because data is missing for $(sku).
+    render_pdf_for_test_with_entries(&page, &draw_entries, &output_path, None, &render_context)
+        .unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
+fn layer_visibility_false_skips_all_frames_in_layer() {
+    use crate::parser::{BarcodeSymbology, TextValue};
+
+    let page = Page {
+        width: 100.0,
+        height: 100.0,
+    };
+    let draw_ops = vec![DrawOp::Barcode {
+        value: TextValue::Literal("ABC".to_string()),
+        symbology: BarcodeSymbology::EAN8,
+        x: NumberValue::Literal(10.0),
+        y: NumberValue::Literal(10.0),
+        width: NumberValue::Literal(60.0),
+        height: NumberValue::Literal(20.0),
+    }];
+    let output_path = std::env::temp_dir().join("marmot_layer_visibility_skip_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert("LAYER_1".to_string(), "layer.visible = false".to_string());
+
+    let render_context = scripted_context_for_default_layer(scripts);
 
     render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
 

@@ -12,6 +12,16 @@ fn script_can_toggle_visibility() {
 }
 
 #[test]
+fn layer_script_can_toggle_visibility() {
+    let mut runtime = LuaRuntime::new();
+    let state = runtime
+        .exec_layer("LAYER_1", "layer.visible = false", None)
+        .unwrap();
+
+    assert!(!state.visible);
+}
+
+#[test]
 fn script_can_set_value_override() {
     let mut runtime = LuaRuntime::new();
     let state = runtime
@@ -80,6 +90,18 @@ fn invalid_visible_assignment_fails() {
         .to_string();
 
     assert!(err.contains("visible"));
+    assert!(err.contains("boolean") || err.contains("bool"));
+}
+
+#[test]
+fn invalid_layer_visible_assignment_fails() {
+    let mut runtime = LuaRuntime::new();
+    let err = runtime
+        .exec_layer("LAYER_1", "layer.visible = \"no\"", None)
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("layer.visible"));
     assert!(err.contains("boolean") || err.contains("bool"));
 }
 

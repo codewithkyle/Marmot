@@ -56,7 +56,19 @@ frames begin
   6 FRAME_CODES
 end
 
+layers begin
+  layer 1 LAYER_MAIN begin
+    1 FRAME_BASE
+    2 FRAME_HEADER
+    3 FRAME_OFFER
+    4 FRAME_PRICE
+    5 FRAME_LOGO
+    6 FRAME_CODES
+  end
+end
+
 draw begin
+  layer 1 begin
   frame 1 begin
     % Card background + border
     1 1 1 rgb
@@ -121,6 +133,7 @@ draw begin
     0 0 0 rgb
     $(promo_url) qr 355 215 60 60 barcode
     $(sku) c128b 26 240 214 28 barcode
+  end
   end
 end
 ```

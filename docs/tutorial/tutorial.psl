@@ -29,31 +29,131 @@ frames begin
   3 FRAME_HEADER
   4 FRAME_PRICE_DEFAULT
   5 FRAME_PRICE_SUPER
-  6 FRAME_LOGO
-  7 FRAME_BADGE
+  6 FRAME_LOGO_DEFAULT
+  7 FRAME_BADGE_DEFAULT
   8 FRAME_BAR_CODES
   9 FRAME_QR_CODES
+  10 FRAME_LOGO_SUPER
+  11 FRAME_BADGE_SUPER
+end
+
+layers begin
+  layer 1 LAYER_DEFAULT_THEME begin
+    1 FRAME_BASE_DEFAULT
+    4 FRAME_PRICE_DEFAULT
+    6 FRAME_LOGO_DEFAULT
+    7 FRAME_BADGE_DEFAULT
+  end
+
+  layer 2 LAYER_SUPER_THEME begin
+    2 FRAME_BASE_SUPER
+    5 FRAME_PRICE_SUPER
+    10 FRAME_LOGO_SUPER
+    11 FRAME_BADGE_SUPER
+  end
 end
 
 draw begin
-  frame 1 begin
-    % Card background + border
-    1 1 1 rgb
-    0 0 432 288 rect fill
+  layer 1 begin
+    frame 1 begin
+      % Card background + border
+      1 1 1 rgb
+      0 0 432 288 rect fill
 
-    0 0 0 0.08 cmyk
-    6 strokewidth
-    8 8 416 272 rect stroke
+      0 0 0 0.08 cmyk
+      6 strokewidth
+      8 8 416 272 rect stroke
+    end
+
+    frame 4 begin
+      % Offer + price stack (default + save-5)
+      (kablammo) font
+      32 fontsize
+      left align
+      middle valign
+      0.1 0.1 0.1 rgb
+      (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
+
+      (kablammo) font
+      58 fontsize
+      left align
+      top valign
+      fit textfit
+      0.92 0.07 0.16 rgb
+      ($) $(sale_price) 2 concat 26 136 220 74 textbox
+
+      (kablammo) font
+      14 fontsize
+      left align
+      top valign
+      fit textfit
+      0 0 0 rgb
+      (sans) font
+      (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
+    end
+
+    frame 6 begin
+      % Base-theme fallback logo when promo_url is empty
+      contain imagefit
+      (logo_default) 355 215 60 60 image
+    end
+
+    frame 7 begin
+      % Base-theme badge
+      contain imagefit
+      (save_5) 285 90 110 110 image
+    end
   end
 
-  frame 2 begin
-    % Super-sale background + border
-    0.92 0.07 0.16 rgb
-    0 0 432 288 rect fill
+  layer 2 begin
+    frame 2 begin
+      % Super-sale background + border
+      0.92 0.07 0.16 rgb
+      0 0 432 288 rect fill
 
-    1 1 1 rgb
-    6 strokewidth
-    8 8 416 272 rect stroke
+      1 1 1 rgb
+      6 strokewidth
+      8 8 416 272 rect stroke
+    end
+
+    frame 5 begin
+      % Offer + price stack (super-sale)
+      (kablammo) font
+      32 fontsize
+      left align
+      middle valign
+      0 0 0 rgb
+      (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
+
+      (kablammo) font
+      58 fontsize
+      left align
+      top valign
+      fit textfit
+      0 0 0 rgb
+      ($) $(sale_price) 2 concat 26 136 220 74 textbox
+
+      (kablammo) font
+      14 fontsize
+      left align
+      top valign
+      fit textfit
+      0 0 0 rgb
+      (sans) font
+      (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
+    end
+
+    frame 10 begin
+      % Super-theme fallback logo when promo_url is empty
+      contain imagefit
+      (logo_alt) 355 215 60 60 image
+    end
+
+    frame 11 begin
+      % Super-theme badge
+      contain imagefit
+      (super_save) 285 90 110 110 image
+    end
   end
 
   frame 3 begin
@@ -67,72 +167,6 @@ draw begin
     middle valign
     1 1 1 rgb
     $(product_name) titlecase 28 24 376 40 textbox
-  end
-
-  frame 4 begin
-    % Offer + price stack (default + save-5)
-    (kablammo) font
-    32 fontsize
-    left align
-    middle valign
-    0.1 0.1 0.1 rgb
-    (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
-
-    (kablammo) font
-    58 fontsize
-    left align
-    top valign
-    fit textfit
-    0.92 0.07 0.16 rgb
-    ($) $(sale_price) 2 concat 26 136 220 74 textbox
-
-    (kablammo) font
-    14 fontsize
-    left align
-    top valign
-    fit textfit
-    0 0 0 rgb
-    (sans) font
-    (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
-  end
-
-  frame 5 begin
-    % Offer + price stack (super-sale)
-    (kablammo) font
-    32 fontsize
-    left align
-    middle valign
-    0 0 0 rgb
-    (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
-
-    (kablammo) font
-    58 fontsize
-    left align
-    top valign
-    fit textfit
-    0 0 0 rgb
-    ($) $(sale_price) 2 concat 26 136 220 74 textbox
-
-    (kablammo) font
-    14 fontsize
-    left align
-    top valign
-    fit textfit
-    0 0 0 rgb
-    (sans) font
-    (Reg $) $(regular_price) 2 concat 30 215 180 10 textbox
-  end
-
-  frame 6 begin
-    % Brand image (shown only when promo_url is empty)
-    contain imagefit
-    (logo_default) 355 215 60 60 image
-  end
-
-  frame 7 begin
-    % Promo badge (save_5 or super_save)
-    contain imagefit
-    (save_5) 285 90 110 110 image
   end
 
   frame 8 begin

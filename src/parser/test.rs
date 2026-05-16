@@ -10,10 +10,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -76,10 +80,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 extra
 "#;
 
@@ -93,7 +101,7 @@ extra
         err,
         ParseError::ExpectedEof {
             found: TokenKind::Word("extra".to_string()),
-            line: 12,
+            line: 16,
             column: 1,
         }
     );
@@ -108,10 +116,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -136,10 +148,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -173,10 +189,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -204,10 +224,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -239,10 +263,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -266,13 +294,17 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       1 0 0 rgb
       2 strokewidth
       0 0 10 10 line stroke
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -282,7 +314,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::SetRgb {
                 r: NumberValue::Literal(1.0),
@@ -312,11 +344,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       1 0 rgb
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -331,7 +367,7 @@ end
             operator: "rgb".to_string(),
             expected: 3,
             actual: 2,
-            line: 10,
+            line: 14,
             column: 11,
         }
     );
@@ -346,11 +382,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0.1 0.2 0.3 0.4 cmyk
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -360,7 +400,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::SetCmyk {
             c: NumberValue::Literal(0.1),
             m: NumberValue::Literal(0.2),
@@ -379,11 +419,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0.1 0.2 0.3 cmyk
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -398,7 +442,7 @@ end
             operator: "cmyk".to_string(),
             expected: 4,
             actual: 3,
-            line: 10,
+            line: 14,
             column: 19,
         }
     );
@@ -413,11 +457,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0 0 10 line
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -432,7 +480,7 @@ end
             operator: "line".to_string(),
             expected: 4,
             actual: 3,
-            line: 10,
+            line: 14,
             column: 14,
         }
     );
@@ -447,11 +495,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (Hello world) 0 0 100 100 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -461,7 +513,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Literal("Hello world".to_string()),
             x: NumberValue::Literal(0.0),
@@ -481,11 +533,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0 0 100 100 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -500,7 +556,7 @@ end
             operator: "textbox".to_string(),
             expected: 5,
             actual: 4,
-            line: 10,
+            line: 14,
             column: 19,
         }
     );
@@ -515,11 +571,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       1 0 0 100 100 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -534,7 +594,7 @@ end
             operator: "textbox".to_string(),
             expected: "string".to_string(),
             found: "number".to_string(),
-            line: 10,
+            line: 14,
             column: 21,
         }
     );
@@ -553,11 +613,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(x) 0 10 10 rect stroke
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -567,7 +631,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::RectPath {
                 x: NumberValue::Slot("x".to_string()),
@@ -589,11 +653,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0 0 10 10 rect fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -603,7 +671,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::RectPath {
                 x: NumberValue::Literal(0.0),
@@ -625,11 +693,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(missing) 0 0 100 100 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -642,7 +714,7 @@ end
         err,
         ParseError::UnknownSlot {
             name: "missing".to_string(),
-            line: 10,
+            line: 14,
             column: 7,
         }
     );
@@ -661,11 +733,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(product_name) 0 0 100 100 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -675,7 +751,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Slot("product_name".to_string()),
             x: NumberValue::Literal(0.0),
@@ -699,11 +775,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(r) 0 0 rgb
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -713,7 +793,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::SetRgb {
             r: NumberValue::Slot("r".to_string()),
             g: NumberValue::Literal(0.0),
@@ -735,11 +815,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(c) 0 0 0 cmyk
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -749,7 +833,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::SetCmyk {
             c: NumberValue::Slot("c".to_string()),
             m: NumberValue::Literal(0.0),
@@ -768,11 +852,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0 0 0 10 rect fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -788,7 +876,7 @@ end
             operand: "width".to_string(),
             value: 0.0,
             expected: "> 0".to_string(),
-            line: 10,
+            line: 14,
             column: 16,
         }
     );
@@ -803,11 +891,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       0 0 10 10 line stroke
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -817,7 +909,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::LinePath {
                 x1: NumberValue::Literal(0.0),
@@ -844,10 +936,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -884,10 +980,14 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -911,7 +1011,7 @@ fn errors_on_invalid_header_comment() {
     let source = r#"% hello
 page 612 792
 draw begin
-end
+layer 1 begin end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -935,7 +1035,7 @@ fn errors_when_page_keyword_is_wrong() {
     let source = r#"%!PSL 0.1
 size 612 792
 draw begin
-end
+layer 1 begin end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -964,6 +1064,10 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw start
 "#;
 
@@ -978,7 +1082,7 @@ draw start
         ParseError::ExpectedWord {
             expected: "begin".to_string(),
             found: TokenKind::Word("start".to_string()),
-            line: 8,
+            line: 12,
             column: 6,
         }
     );
@@ -992,6 +1096,10 @@ page 612 792
 frames begin
   1 FRAME_1
 end
+
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
 
 draw begin
 "#;
@@ -1064,7 +1172,7 @@ slots begin
 end
 
 draw begin
-end
+layer 1 begin end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1093,7 +1201,7 @@ fonts begin
 end
 
 draw begin
-end
+layer 1 begin end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1121,11 +1229,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     banana
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1138,7 +1250,7 @@ end
         err,
         ParseError::UnexpectedDrawToken {
             found: TokenKind::Word("banana".to_string()),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1153,11 +1265,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1170,7 +1286,7 @@ end
         err,
         ParseError::NoCurrentPath {
             operator: "fill".to_string(),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1185,11 +1301,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     stroke
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1202,7 +1322,7 @@ end
         err,
         ParseError::NoCurrentPath {
             operator: "stroke".to_string(),
-            line: 10,
+            line: 14,
             column: 5,
         }
     );
@@ -1217,11 +1337,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     0 0 10 10 line fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1234,7 +1358,7 @@ end
         err,
         ParseError::CannotFillPath {
             path: "line".to_string(),
-            line: 10,
+            line: 14,
             column: 20,
         }
     );
@@ -1249,11 +1373,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     0 0 10 10 rect 1 1 2 2 rect fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1265,7 +1393,7 @@ end
     assert_eq!(
         err,
         ParseError::UnpaintedPath {
-            line: 10,
+            line: 14,
             column: 28
         }
     );
@@ -1280,11 +1408,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     0 0 10 10 rect
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1296,7 +1428,7 @@ end
     assert_eq!(
         err,
         ParseError::UnpaintedPath {
-            line: 11,
+            line: 15,
             column: 3
         }
     );
@@ -1311,11 +1443,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     1
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1328,7 +1464,7 @@ end
         err,
         ParseError::UnusedStackValues {
             count: 1,
-            line: 11,
+            line: 15,
             column: 3,
         }
     );
@@ -1343,8 +1479,12 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (Helvetica-Bold) font
       12 fontsize
       center align
@@ -1355,7 +1495,7 @@ draw begin
       40 textfitmax
       (Hello) 10 20 200 40 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1365,7 +1505,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::SetFontFamily {
                 font: TextValue::Literal("Helvetica-Bold".to_string()),
@@ -1408,18 +1548,22 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       "logo" 10 20 30 40 image
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Image {
             asset: TextValue::Literal("logo".to_string()),
             x: NumberValue::Literal(10.0),
@@ -1437,11 +1581,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       1 10 20 30 40 image
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
@@ -1466,18 +1614,22 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       "./logos/sprout-basket.png" "customer_logo" loadimage
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::LoadImage {
             path: TextValue::Literal("./logos/sprout-basket.png".to_string()),
             alias: TextValue::Literal("customer_logo".to_string()),
@@ -1493,11 +1645,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       "./logos/sprout-basket.png" 123 loadimage
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
@@ -1522,20 +1678,24 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       contain imagefit
       cover imagefit
       stretch imagefit
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![
             DrawOp::SetImageFit {
                 fit: ImageFit::Contain
@@ -1562,18 +1722,22 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (BUY ) $(B) ( GET ) $(G) 4 concat 0 0 100 25 textbox
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
     let template = parser.parse_template().unwrap();
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Concat(vec![
                 TextValue::Literal("BUY ".to_string()),
@@ -1599,11 +1763,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (A) $(n) concat 0 0 100 25 textbox
   end
-end
+end end
 "#;
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().unwrap();
@@ -1624,11 +1792,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (hELLo) uppercase 0 0 100 25 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1637,7 +1809,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::UpperCase(Box::new(TextValue::Literal("hELLo".to_string()))),
             x: NumberValue::Literal(0.0),
@@ -1657,11 +1829,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (hELLo) lowercase 0 0 100 25 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1670,7 +1846,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::LowerCase(Box::new(TextValue::Literal("hELLo".to_string()))),
             x: NumberValue::Literal(0.0),
@@ -1690,11 +1866,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (hELLo wORLd) titlecase 0 0 100 25 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1703,7 +1883,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::TitleCase(Box::new(TextValue::Literal("hELLo wORLd".to_string(),))),
             x: NumberValue::Literal(0.0),
@@ -1723,11 +1903,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       (hELLo wORLd) capitalize 0 0 100 25 textbox
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1736,7 +1920,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::TextBox {
             text: TextValue::Capitalize(Box::new(TextValue::Literal("hELLo wORLd".to_string(),))),
             x: NumberValue::Literal(0.0),
@@ -1758,11 +1942,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(sku) c39 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1771,7 +1959,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code39,
@@ -1791,11 +1979,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       123 c39 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1825,11 +2017,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(sku) c128a 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1838,7 +2034,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128A,
@@ -1861,11 +2057,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(sku) c128b 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1874,7 +2074,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128B,
@@ -1897,11 +2097,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(sku) c128c 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1910,7 +2114,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("sku".to_string()),
             symbology: BarcodeSymbology::Code128C,
@@ -1933,11 +2137,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(upc) upca 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1946,7 +2154,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("upc".to_string()),
             symbology: BarcodeSymbology::UPCA,
@@ -1969,11 +2177,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(ean) ean13 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -1982,7 +2194,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("ean".to_string()),
             symbology: BarcodeSymbology::EAN13,
@@ -2005,11 +2217,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(ean) ean8 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2018,7 +2234,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("ean".to_string()),
             symbology: BarcodeSymbology::EAN8,
@@ -2041,11 +2257,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(item_id) msi 20 20 220 50 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2054,7 +2274,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("item_id".to_string()),
             symbology: BarcodeSymbology::MSI,
@@ -2077,11 +2297,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(url) qr 20 20 120 120 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2090,7 +2314,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("url".to_string()),
             symbology: BarcodeSymbology::QR,
@@ -2113,11 +2337,15 @@ frames begin
   1 FRAME_1
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_1
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
       $(payload) datamatrix 20 20 120 120 barcode
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2126,7 +2354,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.draw_frames[0].ops,
+        template.draw_layers[0].frames[0].ops,
         vec![DrawOp::Barcode {
             value: TextValue::Slot("payload".to_string()),
             symbology: BarcodeSymbology::DataMatrix,
@@ -2148,15 +2376,20 @@ frames begin
   2 FRAME_B
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_A
+  2 FRAME_B
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
     1 0 0 rgb
   end
 
   frame 2 begin
     0 0 20 20 rect fill
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2165,7 +2398,7 @@ end
     let template = parser.parse_template().unwrap();
 
     assert_eq!(
-        template.frames,
+        template.layers[0].frames,
         vec![
             FrameDecl {
                 index: 1,
@@ -2178,9 +2411,9 @@ end
         ]
     );
 
-    assert_eq!(template.draw_frames.len(), 2);
-    assert_eq!(template.draw_frames[0].index, 1);
-    assert_eq!(template.draw_frames[1].index, 2);
+    assert_eq!(template.draw_layers[0].frames.len(), 2);
+    assert_eq!(template.draw_layers[0].frames[0].index, 1);
+    assert_eq!(template.draw_layers[0].frames[1].index, 2);
 }
 
 #[test]
@@ -2189,9 +2422,9 @@ fn errors_when_frames_block_is_missing() {
 page 300 200
 
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2219,11 +2452,15 @@ frames begin
   1 FRAME_A
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_A
+end end
+
 draw begin
-  frame 2 begin
+  layer 1 begin frame 2 begin
     1 0 0 rgb
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2235,8 +2472,8 @@ end
         err,
         ParseError::UnknownFrameIndex {
             index: 2,
-            line: 9,
-            column: 9,
+            line: 13,
+            column: 23,
         }
     );
 }
@@ -2250,9 +2487,13 @@ frames begin
   1 FRAME_A
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_A
+end end
+
 draw begin
-  frame 1 start
-end
+  layer 1 begin frame 1 start
+end end
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2265,8 +2506,8 @@ end
         ParseError::ExpectedWord {
             expected: "begin".to_string(),
             found: TokenKind::Word("start".to_string()),
-            line: 9,
-            column: 11,
+            line: 13,
+            column: 25,
         }
     );
 }
@@ -2280,8 +2521,12 @@ frames begin
   1 FRAME_A
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1 FRAME_A
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
 "#;
 
     let mut lexer = Lexer::new(source);
@@ -2306,10 +2551,14 @@ frames begin
   1.5 FRAME_A
 end
 
+layers begin
+  layer 1 LAYER_1 begin 1.5 FRAME_A
+end end
+
 draw begin
-  frame 1 begin
+  layer 1 begin frame 1 begin
   end
-end
+end end
 "#;
 
     let mut lexer = Lexer::new(source);

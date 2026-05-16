@@ -7,21 +7,23 @@ This document describes scripting behavior implemented today.
 Scripts are packaged under:
 
 ```text
-scripts/<frame_id>.lua
+scripts/<script_id>.lua
 ```
 
-- `<frame_id>` is the frame id from PSL `frames begin ... end`.
-- Missing script for a frame is valid (no-op).
-- Unknown script file (no matching frame id) fails context build.
+- `<script_id>` can be either a layer id from PSL `layers begin ... end` or a frame id from PSL `frames begin ... end`.
+- Missing script for a layer/frame is valid (no-op).
+- Unknown script file (no matching layer/frame id) fails context build.
 - Non-`.lua` files in `scripts/` fail context build.
 
 ## Runtime Model
 
 Render flow (scripting parts):
 
-1. Build frame runtime state (`visible=true`, `value_override=nil`) for all frames.
-2. For each planned scripted frame, execute Lua script with globals `data` and `frame`.
-3. Apply final runtime frame state to draw pass.
+1. Build layer runtime state (`visible=true`) for all layers.
+2. Build frame runtime state (`visible=true`, `value_override=nil`) for all frames.
+3. For each planned scripted layer, execute Lua script with globals `data` and `layer`.
+4. For each planned scripted frame, execute Lua script with globals `data` and `frame`.
+5. Apply final layer/frame runtime state to draw pass.
 
 Scripts run in an isolated Lua environment with a restricted global base.
 
@@ -97,6 +99,16 @@ local v = data.getSlot("slot_name")
 - Returns Lua `string`, `number`, `boolean`, or `nil`.
 - Missing key returns `nil`.
 - JSON arrays/objects fail hard with runtime error.
+
+## `layer` API
+
+`layer` is a strict userdata with mutable fields:
+
+- `layer.visible: boolean`
+
+Rules:
+
+- Invalid `layer.visible` assignment fails render hard.
 
 ## `frame` API
 
