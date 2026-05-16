@@ -1,6 +1,6 @@
 # Marmot CLI Guide
 
-Marmot renders dynamic PDFs from packaged `.psl` templates and JSON data.
+Marmot renders dynamic PDFs and PNGs from packaged `.psl` templates and JSON data.
 
 ## Quick Start
 
@@ -21,8 +21,8 @@ Basic workflow:
 1. Create a template file, for example `template.psl`.
 2. Package it into a `.marmot` archive.
 3. Validate JSON data against template slots.
-4. Render a PDF.
-5. (Optional) Batch-render many PDFs from JSONL records.
+4. Render a PDF or PNG.
+5. (Optional) Batch-render many PDFs/PNGs from JSONL records.
 
 Example:
 
@@ -59,10 +59,10 @@ Behavior:
 
 ## `marmot render`
 
-Render a `.marmot` package into a PDF.
+Render a `.marmot` package into a PDF or PNG.
 
 ```bash
-marmot render [--timings] --output <output> <package> [data]
+marmot render [--timings] [--output-type <pdf|png>] [--dpi <72-1200>] [--dither <type>] --output <output> <package> [data]
 ```
 
 Example with data:
@@ -83,13 +83,19 @@ Example with stage timings:
 marmot render demo.marmot data/test-1.json --output out.pdf --timings
 ```
 
+Example PNG with dithering:
+
+```bash
+marmot render demo.marmot data/test-1.json --output out.png --output-type png --dither floyd
+```
+
 Behavior:
 
 - Loads and parses `template.psl` from package.
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
 - Loads package frame scripts from `scripts/*.lua` when present.
-- Renders to PDF at `--output`.
+- Renders to `--output` as PDF or PNG (`--output-type`, default `pdf`).
 - Prints non-fatal render warnings to stderr (for example empty frame values).
 - With `--timings`, prints elapsed time for `prep`, `render`, `script`, `draw`, and `total`.
 
@@ -97,7 +103,9 @@ Notes:
 
 - If template uses slot values in `draw`, rendering without `[data]` fails.
 - Template `frames begin ... end` and framed `draw` sections are required.
-- Current renderer output format is PDF.
+- `--dpi` applies to PNG output (default `300`, range `72..=1200`).
+- `--dither` applies to PNG output and requires `remap.plt` in the package.
+- Supported dither types: `floyd`, `atkinson`, `stucki`, `burkes`, `jarvis`, `sierra3`.
 - `--timings` is intended for local profiling and benchmarking runs.
 
 ## `marmot pack`
@@ -114,6 +122,7 @@ Options:
 - `-f, --font <PATH>`: include a font file in archive at `fonts/<filename>`
 - `-s, --script <PATH>`: include a Lua script file in archive at `scripts/<filename>`
 - `-o, --output-dir <DIR>`: output directory (defaults to current directory)
+- `--remap <PATH>`: include a remap palette file in archive as `remap.plt` (used by PNG dithering)
 
 Example:
 
@@ -125,7 +134,7 @@ Creates: `build/label.marmot`
 
 ## `marmot batch`
 
-Render many PDFs from one package and a JSONL records file.
+Render many PDFs or PNGs from one package and a JSONL records file.
 
 ```bash
 marmot batch [OPTIONS] <package> <records> --output-dir <dir> --output-name <template>
@@ -133,11 +142,16 @@ marmot batch [OPTIONS] <package> <records> --output-dir <dir> --output-name <tem
 
 Options:
 
-- `--output-dir <DIR>`: destination directory for generated PDFs (created if missing)
+- `--output-dir <DIR>`: destination directory for generated files (created if missing)
 - `--output-name <TEMPLATE>`: filename template supporting `{index}` and top-level JSON fields (e.g. `{sku}`, `{id}`)
+- `--output-type <TYPE>`: output format, `pdf` or `png` (default `pdf`)
+- `--dpi <NUMBER>`: PNG DPI (`72..=1200`, default `300`)
+- `--dither <TYPE>`: PNG dither algorithm; requires package `remap.plt`
 - `-j, --jobs <N>`: worker count (`0` = auto-detect CPU parallelism)
 - `--trust-data`: skip upfront per-record slot validation in batch mode
 - `--timings`: print stage timings and per-record render latency distribution
+
+Supported dither types: `floyd`, `atkinson`, `stucki`, `burkes`, `jarvis`, `sierra3`.
 
 Examples:
 
@@ -152,7 +166,7 @@ Behavior:
 - Reads `<records>` as JSON Lines (one JSON object per line).
 - Ignores blank lines.
 - Uses a worker pool to render records in parallel.
-- Produces one PDF per successful record.
+- Produces one PDF/PNG per successful record.
 - Prints per-record non-fatal render warnings to stderr.
 - Prints `success`, `failed`, and `skipped` counts at completion.
 
@@ -182,6 +196,7 @@ When options are used, it can also contain:
 - `fonts/<filename>` (from `--font`)
 - `assets/<filename>` (from `--asset`)
 - `scripts/<filename>` (from `--script`)
+- `remap.plt` (from `--remap`)
 
 Important:
 
@@ -236,6 +251,11 @@ Common validation behavior:
 - Cause: duplicated font alias in template or repeated file names during packaging.
 - Fix: make aliases and package filenames unique.
 
+## `--dither requires remap.plt in package`
+
+- Cause: `--dither` used with `render` or `batch`, but package does not include `remap.plt`.
+- Fix: rebuild package with `marmot pack ... --remap <palette-file>`.
+
 ## `unknown script file` or `invalid script file extension`
 
 - Cause: file in package `scripts/` does not map to declared frame id, or script file is not `.lua`.
@@ -260,7 +280,7 @@ Common validation behavior:
 
 - Commands: `check`, `render`, `pack`, `batch`
 - Input data formats: JSON object (`check`/`render`) and JSONL records (`batch`)
-- Output format: PDF
+- Output formats: PDF, PNG
 - Packaged fonts: supported
 - Packaged image assets + draw-time image operator: supported
 - Packaged frame scripting (`scripts/*.lua`): supported
