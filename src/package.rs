@@ -160,6 +160,7 @@ pub struct PackageBuilderOptions {
     pub assets: Vec<PathBuf>,
     pub fonts: Vec<PathBuf>,
     pub scripts: Vec<PathBuf>,
+    pub remap_file: Option<PathBuf>,
 }
 
 pub fn create_package(options: PackageBuilderOptions) -> Result<()> {
@@ -182,6 +183,10 @@ pub fn create_package(options: PackageBuilderOptions) -> Result<()> {
         &options.template_file,
         "template.psl",
     )?;
+
+    if let Some(remap) = &options.remap_file {
+        add_unique_file(&mut zip, &mut archive_paths, remap, "remap.plt")?;
+    }
 
     for font in &options.fonts {
         let filename = filename_string(font)?;
@@ -221,6 +226,10 @@ fn filename_string(path: &Path) -> Result<String> {
 
 fn validate_package_build_options(options: &PackageBuilderOptions) -> Result<()> {
     ensure_file_exists(&options.template_file)?;
+
+    if let Some(remap_file) = &options.remap_file {
+        ensure_file_exists(&remap_file)?;
+    }
 
     if options.output_file.extension().and_then(|ext| ext.to_str()) != Some("marmot") {
         bail!(

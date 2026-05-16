@@ -8,7 +8,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::resources::{RegisteredFont, RenderContext};
+use dither::{
+    clamp_f64_to_u8,
+    color::{RGB, palette},
+    ditherer::{
+        ATKINSON, BURKES, Dither, Ditherer, FLOYD_STEINBERG, JARVIS_JUDICE_NINKE, SIERRA_3, STUCKI,
+    },
+    prelude::Img,
+};
+
+use crate::{
+    DitherType,
+    resources::{RegisteredFont, RenderContext},
+};
 use crate::{
     parser::{
         AssetType, BarcodeSymbology, DrawOp, FrameDecl, FrameDrawBlock, NumberValue, Page,
@@ -58,6 +70,12 @@ struct ScaledImageKey {
     height_px: i32,
 }
 
+#[derive(Clone)]
+struct ImageRemapConfig {
+    dithered: Ditherer<'static>,
+    palette: Vec<RGB<u8>>,
+}
+
 const IMAGE_RESAMPLE_FILTER: cairo::Filter = cairo::Filter::Good;
 const IMAGE_CACHE_SCALE: f64 = 3.0;
 
@@ -65,6 +83,7 @@ pub struct RenderCache {
     image_surfaces: HashMap<String, cairo::ImageSurface>,
     scaled_image_surfaces: HashMap<ScaledImageKey, cairo::ImageSurface>,
     script_runtime: LuaRuntime,
+    image_remap: Option<ImageRemapConfig>,
 }
 
 impl Default for RenderCache {
@@ -73,6 +92,7 @@ impl Default for RenderCache {
             image_surfaces: HashMap::new(),
             scaled_image_surfaces: HashMap::new(),
             script_runtime: LuaRuntime::new(),
+            image_remap: None,
         }
     }
 }
@@ -97,6 +117,14 @@ pub struct RenderWarnings {
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
+    RemapPaletteParse {
+        message: String,
+    },
+    RemapMissingPalette,
+    ImageWrite {
+        path: PathBuf,
+        message: String,
+    },
     ScriptRuntime {
         frame_index: u32,
         frame_id: String,
@@ -1034,18 +1062,83 @@ fn fitted_font_size(
     }
 }
 
+fn to_dithered(kind: DitherType) -> Ditherer<'static> {
+    match kind {
+        DitherType::Floyd => FLOYD_STEINBERG,
+        DitherType::Atkinson => ATKINSON,
+        DitherType::Stucki => STUCKI,
+        DitherType::Burkes => BURKES,
+        DitherType::Jarvis => JARVIS_JUDICE_NINKE,
+        DitherType::Sierra3 => SIERRA_3,
+    }
+}
+
+fn build_image_remap_config(
+    dither: Option<DitherType>,
+    remap_palette_source: Option<&str>,
+) -> Result<Option<ImageRemapConfig>, RenderError> {
+    let Some(kind) = dither else {
+        return Ok(None);
+    };
+    let source = remap_palette_source.ok_or(RenderError::RemapMissingPalette)?;
+    let palette_vec =
+        palette::parse::<Vec<RGB<u8>>>(source).map_err(|err| RenderError::RemapPaletteParse {
+            message: err.to_string(),
+        })?;
+
+    Ok(Some(ImageRemapConfig {
+        dithered: to_dithered(kind),
+        palette: palette_vec,
+    }))
+}
+
+fn apply_remap_to_rgba(
+    rgba: &mut image::RgbaImage,
+    cfg: &ImageRemapConfig,
+) -> Result<(), RenderError> {
+    let width = rgba.width();
+    let src_pixels = rgba
+        .pixels()
+        .map(|p| RGB(f64::from(p[0]), f64::from(p[1]), f64::from(p[2])));
+
+    let img = Img::new(src_pixels, width).ok_or_else(|| RenderError::RemapPaletteParse {
+        message: "failed to biuld dither image".to_string(),
+    })?;
+
+    let quantize = palette::quantize(&cfg.palette);
+    let out = cfg
+        .dithered
+        .dither(img, quantize)
+        .convert_with(|rgb| rgb.convert_with(clamp_f64_to_u8));
+
+    for (dst, RGB(r, g, b)) in rgba.pixels_mut().zip(out.into_iter()) {
+        dst[0] = r;
+        dst[1] = g;
+        dst[2] = b;
+    }
+
+    Ok(())
+}
+
 fn premultiply(channel: u8, alpha: u8) -> u8 {
     ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
 }
 
-fn load_image_surface(alias: &str, path: &Path) -> Result<cairo::ImageSurface, RenderError> {
+fn load_image_surface(
+    alias: &str,
+    path: &Path,
+    remap: Option<&ImageRemapConfig>,
+) -> Result<cairo::ImageSurface, RenderError> {
     let dyn_img = image::open(path).map_err(|err| RenderError::ImageDecode {
         alias: alias.to_string(),
         path: path.to_path_buf(),
         message: err.to_string(),
     })?;
 
-    let rgba = dyn_img.to_rgba8();
+    let mut rgba = dyn_img.to_rgba8();
+    if let Some(cfg) = remap {
+        apply_remap_to_rgba(&mut rgba, cfg)?;
+    }
     let (width, height) = rgba.dimensions();
 
     let mut surface =
@@ -1091,7 +1184,8 @@ fn get_or_load_image_surface<'a>(
     path: &Path,
 ) -> Result<&'a cairo::ImageSurface, RenderError> {
     if !cache.image_surfaces.contains_key(alias) {
-        let surface = load_image_surface(alias, path)?;
+        let remap = cache.image_remap.as_ref();
+        let surface = load_image_surface(alias, path, remap)?;
         cache.image_surfaces.insert(alias.to_string(), surface);
     }
 
@@ -1586,9 +1680,13 @@ pub fn render_png(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
-    dpi: u16
+    dpi: u16,
+    dither: Option<DitherType>,
+    remap_palette_source: Option<&str>,
 ) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
+    cache.image_remap = build_image_remap_config(dither, remap_palette_source)?;
+
     let scale = dpi as f64 / 72.0;
     let (w, h) = normalize_surface_dims(page.width * scale, page.height * scale);
     let surface = ImageSurface::create(Format::ARgb32, w, h)?;
@@ -1610,11 +1708,13 @@ pub fn render_png(
         path: output_path.to_path_buf(),
         message: format!("failed to create output: {e}"),
     })?;
-    surface.write_to_png(&mut file).map_err(|e| RenderError::ImageDecode {
-        alias: "<output>".to_string(),
-        path: output_path.to_path_buf(),
-        message: format!("failed to create png: {e}"),
-    })?;
+    surface
+        .write_to_png(&mut file)
+        .map_err(|e| RenderError::ImageDecode {
+            alias: "<output>".to_string(),
+            path: output_path.to_path_buf(),
+            message: format!("failed to create png: {e}"),
+        })?;
 
     Ok(RenderOutcome {
         warnings,

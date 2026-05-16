@@ -27,9 +27,28 @@ use crate::{
     validator::validate_data,
 };
 
-struct CheckArgs {
-    package_file: PathBuf,
-    data_file: PathBuf,
+#[derive(Clone, Copy)]
+enum DitherType {
+    Floyd,
+    Atkinson,
+    Stucki,
+    Burkes,
+    Jarvis,
+    Sierra3,
+}
+
+impl DitherType {
+    fn try_from_word(word: &str) -> Result<Self> {
+        match word.to_ascii_lowercase().as_str() {
+            "floyd" | "floyd-steinberg" | "steinberg" => Ok(Self::Floyd),
+            "atkinson" => Ok(Self::Atkinson),
+            "stucki" => Ok(Self::Stucki),
+            "burkes" => Ok(Self::Burkes),
+            "jarvis" | "jarvis-judice-ninke" => Ok(Self::Jarvis),
+            "sierra3" | "sierra-3" | "sierra" => Ok(Self::Sierra3),
+            _ => bail!("invalid dither type: {}", word),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -48,6 +67,11 @@ impl OutputType {
     }
 }
 
+struct CheckArgs {
+    package_file: PathBuf,
+    data_file: PathBuf,
+}
+
 struct RenderArgs {
     package_file: PathBuf,
     data_file: Option<PathBuf>,
@@ -55,6 +79,7 @@ struct RenderArgs {
     enable_timings: bool,
     output_type: OutputType,
     dpi: u16,
+    dither: Option<DitherType>,
 }
 
 struct PackArgs {
@@ -64,6 +89,7 @@ struct PackArgs {
     assets: Vec<PathBuf>,
     fonts: Vec<PathBuf>,
     scripts: Vec<PathBuf>,
+    remap_file: Option<PathBuf>,
 }
 
 struct BatchArgs {
@@ -76,6 +102,7 @@ struct BatchArgs {
     enable_timings: bool,
     output_type: OutputType,
     dpi: u16,
+    dither: Option<DitherType>,
 }
 
 fn main() -> Result<()> {
@@ -104,6 +131,7 @@ fn main() -> Result<()> {
                         .action(ArgAction::SetTrue),
                 )
                 .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
+                .arg(Arg::new("dither").long("dither").value_name("TYPE").value_parser(["floyd","atkinson","stucki","burkes","jarvis","sierra3"]))
         )
         .subcommand(
             Command::new("pack")
@@ -134,7 +162,8 @@ fn main() -> Result<()> {
                         .action(ArgAction::Append)
                         .help("Add a lua script file to the package")
                 )
-                .arg(Arg::new("output").short('o').long("output-dir")),
+                .arg(Arg::new("output").short('o').long("output-dir"))
+                .arg(Arg::new("remap").long("remap").value_name("PATH"))
         )
         .subcommand(
             Command::new("batch")
@@ -177,6 +206,7 @@ fn main() -> Result<()> {
                         .help("Skip upfront slot validation for each record"),
                 )
                 .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
+                .arg(Arg::new("dither").long("dither").value_name("TYPE").value_parser(["floyd","atkinson","stucki","burkes","jarvis","sierra3"]))
         )
         .get_matches();
 
@@ -226,6 +256,7 @@ fn pack(args: PackArgs) -> Result<()> {
         assets: args.assets,
         fonts: args.fonts,
         scripts: args.scripts,
+        remap_file: args.remap_file,
     };
 
     create_package(options)?;
@@ -279,7 +310,9 @@ fn batch(args: BatchArgs) -> Result<()> {
     let output_dir = Arc::new(args.output_dir.clone());
     let output_name = Arc::new(args.output_name.clone());
     let output_type = Arc::new(args.output_type.clone());
-    let dpi = Arc::new(args.dpi.clone());
+    let dpi = args.dpi;
+    let dither = args.dither;
+    let remap_source = Arc::new(load_remap_palette_if_needed(&package, args.dither)?);
     let trust_data = args.trust_data;
 
     let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
@@ -299,7 +332,7 @@ fn batch(args: BatchArgs) -> Result<()> {
         let output_dir = Arc::clone(&output_dir);
         let output_name = Arc::clone(&output_name);
         let output_type = Arc::clone(&output_type);
-        let dpi = Arc::clone(&dpi);
+        let remap_source = Arc::clone(&remap_source);
 
         let handle = thread::spawn(move || {
             let mut render_cache = RenderCache::default();
@@ -326,6 +359,8 @@ fn batch(args: BatchArgs) -> Result<()> {
                     trust_data,
                     &mut render_cache,
                     &dpi,
+                    dither,
+                    remap_source.as_deref(),
                 );
 
                 if tx.send(result).is_err() {
@@ -498,6 +533,7 @@ fn render(args: RenderArgs) -> Result<()> {
     };
 
     let render_context = build_render_context(&template, &package)?;
+    let remap_source = load_remap_palette_if_needed(&package, args.dither)?;
 
     let prep = prep_start.elapsed();
     let render_start = Instant::now();
@@ -520,6 +556,8 @@ fn render(args: RenderArgs) -> Result<()> {
             data.as_ref(),
             &render_context,
             args.dpi,
+            args.dither,
+            remap_source.as_deref(),
         )
         .map_err(|err| anyhow!("failed to render PNG: {err:?}"))?,
     };
@@ -623,6 +661,10 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .map(|s| OutputType::try_from_word(s))
         .unwrap_or(Ok(OutputType::PDF))?;
     let dpi = matches.get_one::<u16>("dpi").expect("dpi has default");
+    let dither = matches
+        .get_one::<String>("dither")
+        .map(|s| DitherType::try_from_word(s))
+        .transpose()?;
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -637,6 +679,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         enable_timings,
         output_type,
         dpi: *dpi,
+        dither,
     })
 }
 
@@ -665,6 +708,7 @@ fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
         .unwrap_or_default()
         .map(PathBuf::from)
         .collect();
+    let remap_file = matches.get_one::<String>("remap").map(PathBuf::from);
 
     let args = PackArgs {
         template_file,
@@ -673,6 +717,7 @@ fn parse_pack_args(matches: &ArgMatches) -> Result<PackArgs> {
         fonts,
         assets,
         scripts,
+        remap_file,
     };
 
     Ok(args)
@@ -697,6 +742,11 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
 
     let dpi = matches.get_one::<u16>("dpi").expect("dpi has default");
 
+    let dither = matches
+        .get_one::<String>("dither")
+        .map(|s| DitherType::try_from_word(s))
+        .transpose()?;
+
     let args = RenderArgs {
         package_file,
         data_file,
@@ -704,6 +754,7 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         enable_timings: *enable_timings,
         output_type,
         dpi: *dpi,
+        dither,
     };
 
     if let Some(data_file) = &args.data_file {
@@ -712,6 +763,21 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
     ensure_parent_exists(&args.output_file)?;
 
     Ok(args)
+}
+
+fn load_remap_palette_if_needed(
+    pkg: &MarmotPackage,
+    dither: Option<DitherType>,
+) -> Result<Option<String>> {
+    if dither.is_none() {
+        return Ok(None);
+    }
+    let path = pkg
+        .resolve_path("remap.plt")
+        .context("--dither requires remap.plt in package")?;
+    Ok(Some(read_to_string(&path).with_context(|| {
+        format!("failed to read {}", path.display())
+    })?))
 }
 
 fn ensure_file_exists(path: &Path) -> Result<()> {
@@ -853,6 +919,8 @@ fn process_batch_line(
     trust_data: bool,
     render_cache: &mut RenderCache,
     dpi: &u16,
+    dither: Option<DitherType>,
+    remap_source: Option<&str>
 ) -> BatchResult {
     let record: Value = match serde_json::from_str(&line) {
         Ok(v) => v,
@@ -915,6 +983,8 @@ fn process_batch_line(
             Some(&record),
             &render_context,
             *dpi,
+            dither,
+            remap_source,
         ),
     };
 
