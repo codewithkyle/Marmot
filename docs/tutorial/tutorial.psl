@@ -34,6 +34,7 @@ frames begin
   8 FRAME_QR_CODES
   9 FRAME_LOGO_SUPER
   10 FRAME_BADGE_SUPER
+  11 FRAME_REG_PRICE
 end
 
 layers begin
@@ -62,7 +63,8 @@ draw begin
     left align
     middle valign
     (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
-
+  end
+  frame 11 begin
     (sans) font
     14 fontsize
     left align

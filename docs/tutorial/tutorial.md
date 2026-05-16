@@ -11,7 +11,7 @@ This tutorial gives copy/paste steps to render one realistic label from a `.psl`
 Copy/paste this into terminal:
 
 ```bash
-cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/LAYER_DEFAULT_THEME.lua -s ./docs/tutorial/LAYER_SUPER_THEME.lua -s ./docs/tutorial/FRAME_BASE.lua -s ./docs/tutorial/FRAME_PRICE_TEXT.lua -s ./docs/tutorial/FRAME_PRICE_SALE.lua -s ./docs/tutorial/FRAME_LOGO_DEFAULT.lua -s ./docs/tutorial/FRAME_LOGO_SUPER.lua -s ./docs/tutorial/FRAME_BADGE_DEFAULT.lua -s ./docs/tutorial/FRAME_QR_CODES.lua --remap ./docs/tutorial/remap.plt
+cargo run -- pack ./docs/tutorial/tutorial.psl tutorial -f test/fonts/Kablammo.ttf -a test/images/sprout-basket.png -a test/images/sprout-basket-alt.png -a test/images/save-5.png -a test/images/super-save.png -o ./out -s ./docs/tutorial/LAYER_DEFAULT_THEME.lua -s ./docs/tutorial/LAYER_SUPER_THEME.lua -s ./docs/tutorial/FRAME_BASE.lua -s ./docs/tutorial/FRAME_PRICE_TEXT.lua -s ./docs/tutorial/FRAME_PRICE_SALE.lua -s ./docs/tutorial/FRAME_LOGO_DEFAULT.lua -s ./docs/tutorial/FRAME_LOGO_SUPER.lua -s ./docs/tutorial/FRAME_BADGE_DEFAULT.lua -s ./docs/tutorial/FRAME_QR_CODES.lua -s ./docs/tutorial/FRAME_REG_PRICE.lua --remap ./docs/tutorial/remap.plt
 cargo run -- check ./out/tutorial.marmot ./docs/tutorial/tutorial.json
 cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.pdf
 cargo run -- render ./out/tutorial.marmot ./docs/tutorial/tutorial.json --output ./out/tutorial.png --output-type png --dither atkinson
