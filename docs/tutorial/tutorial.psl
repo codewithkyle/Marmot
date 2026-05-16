@@ -20,6 +20,7 @@ assets begin
   logo_default image "assets/sprout-basket.png"
   logo_alt image "assets/sprout-basket-alt.png"
   save_5 image "assets/save-5.png"
+  super_save image "assets/super-save.png"
 end
 
 frames begin
@@ -29,8 +30,9 @@ frames begin
   4 FRAME_PRICE_DEFAULT
   5 FRAME_PRICE_SUPER
   6 FRAME_LOGO
-  7 FRAME_BAR_CODES
-  8 FRAME_QR_CODES
+  7 FRAME_BADGE
+  8 FRAME_BAR_CODES
+  9 FRAME_QR_CODES
 end
 
 draw begin
@@ -100,7 +102,7 @@ draw begin
     32 fontsize
     left align
     middle valign
-    1 1 1 rgb
+    0 0 0 rgb
     (BUY ) $(buy_qty) ( GET ) $(get_qty) 4 concat 26 88 250 44 textbox
 
     (kablammo) font
@@ -122,18 +124,24 @@ draw begin
   end
 
   frame 6 begin
-    % Brand image
+    % Brand image (shown only when promo_url is empty)
     contain imagefit
-    (logo_default) 285 90 110 110 image
+    (logo_default) 355 215 60 60 image
   end
 
   frame 7 begin
+    % Promo badge (save_5 or super_save)
+    contain imagefit
+    (save_5) 285 90 110 110 image
+  end
+
+  frame 8 begin
     % Machine-readable codes
     0 0 0 rgb
     $(sku) c128b 26 240 214 28 barcode
   end
 
-  frame 8 begin
+  frame 9 begin
     $(promo_url) qr 355 215 60 60 barcode
   end
 end
