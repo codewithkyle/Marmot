@@ -1299,7 +1299,10 @@ fn path_cache_key(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
-fn resolve_host_asset_path(raw_path: &str, policy: &HostAssetPolicy) -> Result<PathBuf, RenderError> {
+fn resolve_host_asset_path(
+    raw_path: &str,
+    policy: &HostAssetPolicy,
+) -> Result<PathBuf, RenderError> {
     if !policy.allow {
         return Err(RenderError::HostAssetAccessDenied {
             path: raw_path.to_string(),
@@ -1332,12 +1335,11 @@ fn load_runtime_image_asset(
     }
 
     let resolved_path = resolve_host_asset_path(path, policy)?;
-    let registered = load_host_image_asset(alias, &resolved_path).map_err(|err| {
-        RenderError::HostAssetLoad {
+    let registered =
+        load_host_image_asset(alias, &resolved_path).map_err(|err| RenderError::HostAssetLoad {
             path: resolved_path.clone(),
             message: err.to_string(),
-        }
-    })?;
+        })?;
     let source_key = path_cache_key(&resolved_path);
 
     cache.runtime_image_assets.insert(
@@ -1364,15 +1366,13 @@ fn resolve_image_alias(
         ));
     }
 
-    context
-        .resolve_asset(asset)
-        .map(|registered| {
-            (
-                registered.path.clone(),
-                path_cache_key(&registered.path),
-                registered.ty.clone(),
-            )
-        })
+    context.resolve_asset(asset).map(|registered| {
+        (
+            registered.path.clone(),
+            path_cache_key(&registered.path),
+            registered.ty.clone(),
+        )
+    })
 }
 
 fn render_image(
@@ -1394,8 +1394,8 @@ fn render_image(
         });
     }
 
-    let (registered_path, source_key, asset_type) =
-        resolve_image_alias(cache, context, asset).ok_or_else(|| RenderError::MissingAssetAlias {
+    let (registered_path, source_key, asset_type) = resolve_image_alias(cache, context, asset)
+        .ok_or_else(|| RenderError::MissingAssetAlias {
             alias: asset.to_string(),
         })?;
 
@@ -1815,7 +1815,15 @@ pub fn render_pdf_with_cache(
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
-    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache, host_assets)?;
+    let warnings = execute_draw(
+        &ctx,
+        draw_frames,
+        &frame_state,
+        data,
+        context,
+        cache,
+        host_assets,
+    )?;
     let draw_time = draw_start.elapsed();
     surface.finish();
 
@@ -1881,7 +1889,15 @@ pub fn render_png_with_cache(
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
-    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache, host_assets)?;
+    let warnings = execute_draw(
+        &ctx,
+        draw_frames,
+        &frame_state,
+        data,
+        context,
+        cache,
+        host_assets,
+    )?;
     let draw_time = draw_start.elapsed();
     surface.flush();
 

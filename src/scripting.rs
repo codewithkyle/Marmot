@@ -3,7 +3,10 @@ mod test;
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use mlua::{Error as LuaError, Lua, RegistryKey, UserData, UserDataFields, Value as LuaValue};
+use mlua::{
+    Error as LuaError, Lua, RegistryKey, Table, UserData, UserDataFields, Value as LuaValue,
+    Variadic,
+};
 use serde_json::Value as JsonValue;
 
 use crate::renderer::FrameRuntimeState;
@@ -162,9 +165,237 @@ impl LuaRuntime {
             }
         }
 
+        self.register_builtin_helpers(&base)?;
+
         let key = self.lua.create_registry_value(base.clone())?;
         self.sandbox_base = Some(key);
         Ok(base)
+    }
+
+    fn register_builtin_helpers(&self, base: &Table) -> mlua::Result<()> {
+        let percent = self.lua.create_function(|_, (part, total): (f64, f64)| {
+            if total == 0.0 {
+                return Err(LuaError::RuntimeError(
+                    "percent total must not be zero".to_string(),
+                ));
+            }
+            let pct = (part / total) * 100.0;
+            Ok(format!("{}%", Self::format_decimal_trimmed(pct, 2)))
+        })?;
+        base.set("percent", percent)?;
+
+        let currency = self
+            .lua
+            .create_function(|_, amount: f64| Ok(format!("${:.2}", amount)))?;
+        base.set("currency", currency)?;
+
+        let round = self.lua.create_function(|_, (value, places): (f64, i64)| {
+            Ok(Self::round_to_places(value, places))
+        })?;
+        base.set("round", round)?;
+
+        let default_fn =
+            self.lua
+                .create_function(|_, (value, fallback): (LuaValue, LuaValue)| {
+                    if matches!(value, LuaValue::Nil) {
+                        Ok(fallback)
+                    } else {
+                        Ok(value)
+                    }
+                })?;
+        base.set("default", default_fn)?;
+
+        let concat = self.lua.create_function(|_, values: Variadic<LuaValue>| {
+            let mut out = String::new();
+            for value in values {
+                out.push_str(&Self::lua_value_to_string(&value)?);
+            }
+            Ok(out)
+        })?;
+        base.set("concat", concat)?;
+
+        let pad_left =
+            self.lua
+                .create_function(|_, (value, width, pad): (LuaValue, usize, String)| {
+                    let value = Self::lua_value_to_string(&value)?;
+                    Ok(Self::pad_string(&value, width, &pad, true)?)
+                })?;
+        base.set("pad_left", pad_left)?;
+
+        let pad_right =
+            self.lua
+                .create_function(|_, (value, width, pad): (LuaValue, usize, String)| {
+                    let value = Self::lua_value_to_string(&value)?;
+                    Ok(Self::pad_string(&value, width, &pad, false)?)
+                })?;
+        base.set("pad_right", pad_right)?;
+
+        let price_parts = self.lua.create_function(|lua, amount: f64| {
+            let cents_total = (amount * 100.0).round() as i64;
+            let dollars = cents_total / 100;
+            let cents = cents_total.abs() % 100;
+
+            let parts = lua.create_table()?;
+            parts.set("dollars", dollars.to_string())?;
+            parts.set("cents", format!("{:02}", cents))?;
+            Ok(parts)
+        })?;
+        base.set("price_parts", price_parts)?;
+
+        let unit_price =
+            self.lua
+                .create_function(|_, (total, qty, unit): (f64, f64, String)| {
+                    if qty <= 0.0 {
+                        return Err(LuaError::RuntimeError(
+                            "unit_price quantity must be greater than zero".to_string(),
+                        ));
+                    }
+                    Ok(format!("${:.2}/{}", total / qty, unit))
+                })?;
+        base.set("unit_price", unit_price)?;
+
+        let unit_price_each = self.lua.create_function(|_, (total, count): (f64, f64)| {
+            if count <= 0.0 {
+                return Err(LuaError::RuntimeError(
+                    "unit_price_each count must be greater than zero".to_string(),
+                ));
+            }
+            Ok(format!("${:.2} ea", total / count))
+        })?;
+        base.set("unit_price_each", unit_price_each)?;
+
+        let save_amount = self.lua.create_function(|_, (regular, sale): (f64, f64)| {
+            Ok(Self::round_to_places(regular - sale, 2))
+        })?;
+        base.set("save_amount", save_amount)?;
+
+        let truncate = self
+            .lua
+            .create_function(|_, (value, max_len): (String, usize)| {
+                Ok(Self::truncate_string(&value, max_len))
+            })?;
+        base.set("truncate", truncate)?;
+
+        let date_format = self
+            .lua
+            .create_function(|_, (input, pattern): (String, String)| {
+                Self::format_date(&input, &pattern)
+            })?;
+        base.set("date_format", date_format)?;
+
+        let trim = self
+            .lua
+            .create_function(|_, value: String| Ok(value.trim().to_string()))?;
+        base.set("trim", trim)?;
+
+        let trim_left = self
+            .lua
+            .create_function(|_, value: String| Ok(value.trim_start().to_string()))?;
+        base.set("trim_left", trim_left)?;
+
+        let trim_right = self
+            .lua
+            .create_function(|_, value: String| Ok(value.trim_end().to_string()))?;
+        base.set("trim_right", trim_right)?;
+
+        Ok(())
+    }
+
+    fn round_to_places(value: f64, places: i64) -> f64 {
+        let places = places.clamp(0, 9) as i32;
+        let factor = 10_f64.powi(places);
+        (value * factor).round() / factor
+    }
+
+    fn format_decimal_trimmed(value: f64, places: usize) -> String {
+        let mut s = format!("{value:.places$}");
+        if s.contains('.') {
+            while s.ends_with('0') {
+                s.pop();
+            }
+            if s.ends_with('.') {
+                s.pop();
+            }
+        }
+        s
+    }
+
+    fn lua_value_to_string(value: &LuaValue) -> mlua::Result<String> {
+        match value {
+            LuaValue::Nil => Ok("nil".to_string()),
+            LuaValue::Boolean(v) => Ok(v.to_string()),
+            LuaValue::Integer(v) => Ok(v.to_string()),
+            LuaValue::Number(v) => Ok(Self::format_decimal_trimmed(*v, 6)),
+            LuaValue::String(v) => Ok(v.to_str()?.to_string()),
+            _ => Err(LuaError::RuntimeError(
+                "value cannot be converted to string".to_string(),
+            )),
+        }
+    }
+
+    fn pad_string(value: &str, width: usize, pad: &str, left: bool) -> mlua::Result<String> {
+        if pad.is_empty() {
+            return Err(LuaError::RuntimeError(
+                "pad string must not be empty".to_string(),
+            ));
+        }
+        let value_len = value.chars().count();
+        if value_len >= width {
+            return Ok(value.to_string());
+        }
+
+        let needed = width - value_len;
+        let mut filler = String::new();
+        while filler.chars().count() < needed {
+            filler.push_str(pad);
+        }
+        let filler = filler.chars().take(needed).collect::<String>();
+        if left {
+            Ok(format!("{filler}{value}"))
+        } else {
+            Ok(format!("{value}{filler}"))
+        }
+    }
+
+    fn truncate_string(value: &str, max_len: usize) -> String {
+        if max_len == 0 {
+            return String::new();
+        }
+        let char_count = value.chars().count();
+        if char_count <= max_len {
+            return value.to_string();
+        }
+        if max_len == 1 {
+            return "…".to_string();
+        }
+        let keep = max_len - 1;
+        let mut out = value.chars().take(keep).collect::<String>();
+        out.push('…');
+        out
+    }
+
+    fn format_date(input: &str, pattern: &str) -> mlua::Result<String> {
+        let parts = input.split('-').collect::<Vec<_>>();
+        if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+            return Err(LuaError::RuntimeError(
+                "date_format expects YYYY-MM-DD input".to_string(),
+            ));
+        }
+        let (year, month, day) = (parts[0], parts[1], parts[2]);
+        if !year.chars().all(|c| c.is_ascii_digit())
+            || !month.chars().all(|c| c.is_ascii_digit())
+            || !day.chars().all(|c| c.is_ascii_digit())
+        {
+            return Err(LuaError::RuntimeError(
+                "date_format expects numeric YYYY-MM-DD input".to_string(),
+            ));
+        }
+
+        let mut out = pattern.to_string();
+        out = out.replace("YYYY", year);
+        out = out.replace("MM", month);
+        out = out.replace("DD", day);
+        Ok(out)
     }
 
     fn json_scalar_to_lua(lua: &Lua, v: &JsonValue) -> mlua::Result<LuaValue> {
