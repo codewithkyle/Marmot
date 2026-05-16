@@ -3,8 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use super::*;
 use crate::{
     parser::{
-        DrawEntry, DrawOp, FrameDecl, FrameDrawBlock, LayerDecl, LayerDrawBlock, NumberValue,
-        Page,
+        DrawEntry, DrawOp, FrameDecl, FrameDrawBlock, LayerDecl, LayerDrawBlock, NumberValue, Page,
     },
     resources::{FrameScriptPlanEntry, LayerScriptPlanEntry, RegisteredAsset},
 };
@@ -137,6 +136,32 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
         &host_assets_disabled(),
     )
     .map(|_| ())
+}
+
+fn execute_draw_ops_with_runtime_for_test(
+    draw_ops: &[DrawOp],
+    runtime: FrameRuntimeState,
+) -> Result<RenderWarnings, RenderError> {
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 256, 256)?;
+    let ctx = cairo::Context::new(&surface)?;
+    let mut cache = RenderCache::default();
+    let render_context = empty_render_context();
+    let layers = default_layers();
+    let draw_entries = as_draw_entries(draw_ops);
+    let layer_state = build_initial_layer_state(&layers);
+    let mut frame_state = build_initial_frame_state(&layers);
+    frame_state.insert(1, runtime);
+
+    execute_draw(
+        &ctx,
+        &draw_entries,
+        &layer_state,
+        &frame_state,
+        None,
+        &render_context,
+        &mut cache,
+        &host_assets_disabled(),
+    )
 }
 
 fn render_pdf_for_test(
@@ -2331,6 +2356,67 @@ fn script_value_override_applies_to_barcode() {
 }
 
 #[test]
+fn script_style_overrides_apply_to_fill_stroke_and_text() {
+    use crate::parser::TextValue;
+
+    let page = Page {
+        width: 140.0,
+        height: 120.0,
+    };
+    let draw_ops = vec![
+        DrawOp::RectPath {
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(10.0),
+            width: NumberValue::Literal(50.0),
+            height: NumberValue::Literal(30.0),
+        },
+        DrawOp::Fill,
+        DrawOp::RectPath {
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(10.0),
+            width: NumberValue::Literal(50.0),
+            height: NumberValue::Literal(30.0),
+        },
+        DrawOp::Stroke,
+        DrawOp::LinePath {
+            x1: NumberValue::Literal(70.0),
+            y1: NumberValue::Literal(10.0),
+            x2: NumberValue::Literal(120.0),
+            y2: NumberValue::Literal(40.0),
+        },
+        DrawOp::Stroke,
+        DrawOp::TextBox {
+            text: TextValue::Literal("demo".to_string()),
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(60.0),
+            width: NumberValue::Literal(100.0),
+            height: NumberValue::Literal(30.0),
+        },
+    ];
+    let output_path = std::env::temp_dir().join("marmot_script_style_overrides_test.pdf");
+
+    let mut scripts = HashMap::new();
+    scripts.insert(
+        "FRAME_1".to_string(),
+        r#"
+            frame.fill_color = { r = 0.25, g = 0.25, b = 0.25 }
+            frame.stroke_color = parse_rgb("0.1 0.2 0.3")
+            frame.stroke_width = 2
+            frame.text_color = cmyk_to_rgb(0.25, 0.25, 0.25, 0.25)
+        "#
+        .to_string(),
+    );
+
+    let render_context = scripted_context_for_default_frame(scripts);
+
+    render_pdf_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = std::fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+    let _ = std::fs::remove_file(output_path);
+}
+
+#[test]
 fn invalid_script_visible_assignment_fails_render() {
     use crate::parser::TextValue;
 
@@ -2418,6 +2504,35 @@ fn script_runtime_error_fails_render() {
     assert!(matches!(err, RenderError::ScriptRuntime { .. }));
     let msg = format!("{err:?}");
     assert!(msg.contains("boom"));
+}
+
+#[test]
+fn warns_when_text_color_override_is_unused() {
+    let draw_ops = vec![
+        DrawOp::RectPath {
+            x: NumberValue::Literal(10.0),
+            y: NumberValue::Literal(20.0),
+            width: NumberValue::Literal(30.0),
+            height: NumberValue::Literal(40.0),
+        },
+        DrawOp::Fill,
+    ];
+
+    let runtime = FrameRuntimeState {
+        visible: true,
+        value_override: None,
+        fill_color_override: None,
+        stroke_color_override: None,
+        stroke_width_override: None,
+        text_color_override: Some(RuntimeRgb {
+            r: 0.2,
+            g: 0.3,
+            b: 0.4,
+        }),
+    };
+
+    let warnings = execute_draw_ops_with_runtime_for_test(&draw_ops, runtime).unwrap();
+    assert_eq!(warnings.unused_text_color_frames, vec![1]);
 }
 
 #[test]

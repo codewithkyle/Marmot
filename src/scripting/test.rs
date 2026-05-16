@@ -1,4 +1,5 @@
 use super::*;
+use crate::renderer::RuntimeRgb;
 use serde_json::json;
 
 #[test]
@@ -244,4 +245,107 @@ fn builtin_helper_percent_uses_part_over_total() {
         .unwrap();
 
     assert_eq!(state.value_override, Some("50%".to_string()));
+}
+
+#[test]
+fn color_helpers_parse_and_convert() {
+    let mut runtime = LuaRuntime::new();
+
+    let state = runtime
+        .exec(
+            "FRAME_1",
+            r#"
+            local rgb = parse_rgb("0.25 0.25 0.25")
+            local cmyk = parse_cmyk("0.25 0.25 0.25 0.25")
+            local converted = cmyk_to_rgb(cmyk.c, cmyk.m, cmyk.y, cmyk.k)
+
+            if rgb.r == 0.25
+                and rgb.g == 0.25
+                and rgb.b == 0.25
+                and cmyk.c == 0.25
+                and cmyk.m == 0.25
+                and cmyk.y == 0.25
+                and cmyk.k == 0.25
+                and converted.r == 0.5625
+                and converted.g == 0.5625
+                and converted.b == 0.5625 then
+                frame.visible = false
+            end
+        "#,
+            None,
+        )
+        .unwrap();
+
+    assert!(!state.visible);
+}
+
+#[test]
+fn frame_style_overrides_accept_rgb_tables() {
+    let mut runtime = LuaRuntime::new();
+    let state = runtime
+        .exec(
+            "FRAME_1",
+            r#"
+            frame.fill_color = { r = 0.25, g = 0.25, b = 0.25 }
+            frame.stroke_color = { r = 0.25, g = 0.25, b = 0.25 }
+            frame.stroke_width = 2
+            frame.text_color = { r = 0.1, g = 0.2, b = 0.3 }
+        "#,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(
+        state.fill_color_override,
+        Some(RuntimeRgb {
+            r: 0.25,
+            g: 0.25,
+            b: 0.25
+        })
+    );
+    assert_eq!(
+        state.stroke_color_override,
+        Some(RuntimeRgb {
+            r: 0.25,
+            g: 0.25,
+            b: 0.25
+        })
+    );
+    assert_eq!(state.stroke_width_override, Some(2.0));
+    assert_eq!(
+        state.text_color_override,
+        Some(RuntimeRgb {
+            r: 0.1,
+            g: 0.2,
+            b: 0.3
+        })
+    );
+}
+
+#[test]
+fn frame_fill_color_rejects_cmyk_tables() {
+    let mut runtime = LuaRuntime::new();
+    let err = runtime
+        .exec(
+            "FRAME_1",
+            "frame.fill_color = { c = 0.1, m = 0.2, y = 0.3, k = 0.4 }",
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("frame.fill_color"));
+    assert!(err.contains("RGB"));
+}
+
+#[test]
+fn frame_stroke_width_rejects_non_positive_values() {
+    let mut runtime = LuaRuntime::new();
+    let err = runtime
+        .exec("FRAME_1", "frame.stroke_width = 0", None)
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("frame.stroke_width"));
+    assert!(err.contains("positive"));
 }

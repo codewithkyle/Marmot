@@ -246,7 +246,11 @@ pub fn build_render_context(template: &Template, package: &MarmotPackage) -> Res
     }
 
     let layer_ids: HashSet<&str> = template.layers.iter().map(|l| l.id.as_str()).collect();
-    let frame_ids: HashSet<&str> = template.frames.iter().map(|frame| frame.id.as_str()).collect();
+    let frame_ids: HashSet<&str> = template
+        .frames
+        .iter()
+        .map(|frame| frame.id.as_str())
+        .collect();
 
     for layer_id in &layer_ids {
         if frame_ids.contains(layer_id) {

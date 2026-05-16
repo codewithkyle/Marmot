@@ -9,7 +9,7 @@ use mlua::{
 };
 use serde_json::Value as JsonValue;
 
-use crate::renderer::{FrameRuntimeState, LayerRuntimeState};
+use crate::renderer::{FrameRuntimeState, LayerRuntimeState, RuntimeRgb};
 
 #[derive(Clone)]
 struct FrameHandle(Rc<RefCell<FrameRuntimeState>>);
@@ -44,6 +44,68 @@ impl UserData for FrameHandle {
             }
             _ => Err(LuaError::RuntimeError(
                 "frame.value expects string or nil".to_string(),
+            )),
+        });
+
+        fields.add_field_method_get("fill_color", |lua, this| {
+            LuaRuntime::runtime_rgb_to_lua_table(lua, this.0.borrow().fill_color_override.as_ref())
+        });
+        fields.add_field_method_set("fill_color", |_, this, v: LuaValue| {
+            let parsed = LuaRuntime::lua_value_to_runtime_rgb("frame.fill_color", &v)?;
+            this.0.borrow_mut().fill_color_override = parsed;
+            Ok(())
+        });
+
+        fields.add_field_method_get("stroke_color", |lua, this| {
+            LuaRuntime::runtime_rgb_to_lua_table(
+                lua,
+                this.0.borrow().stroke_color_override.as_ref(),
+            )
+        });
+        fields.add_field_method_set("stroke_color", |_, this, v: LuaValue| {
+            let parsed = LuaRuntime::lua_value_to_runtime_rgb("frame.stroke_color", &v)?;
+            this.0.borrow_mut().stroke_color_override = parsed;
+            Ok(())
+        });
+
+        fields.add_field_method_get("text_color", |lua, this| {
+            LuaRuntime::runtime_rgb_to_lua_table(lua, this.0.borrow().text_color_override.as_ref())
+        });
+        fields.add_field_method_set("text_color", |_, this, v: LuaValue| {
+            let parsed = LuaRuntime::lua_value_to_runtime_rgb("frame.text_color", &v)?;
+            this.0.borrow_mut().text_color_override = parsed;
+            Ok(())
+        });
+
+        fields.add_field_method_get("stroke_width", |_, this| {
+            Ok(this.0.borrow().stroke_width_override)
+        });
+        fields.add_field_method_set("stroke_width", |_, this, v: LuaValue| match v {
+            LuaValue::Nil => {
+                this.0.borrow_mut().stroke_width_override = None;
+                Ok(())
+            }
+            LuaValue::Integer(i) => {
+                let width = i as f64;
+                if width <= 0.0 {
+                    return Err(LuaError::RuntimeError(
+                        "frame.stroke_width expects positive number or nil".to_string(),
+                    ));
+                }
+                this.0.borrow_mut().stroke_width_override = Some(width);
+                Ok(())
+            }
+            LuaValue::Number(n) => {
+                if n <= 0.0 {
+                    return Err(LuaError::RuntimeError(
+                        "frame.stroke_width expects positive number or nil".to_string(),
+                    ));
+                }
+                this.0.borrow_mut().stroke_width_override = Some(n);
+                Ok(())
+            }
+            _ => Err(LuaError::RuntimeError(
+                "frame.stroke_width expects positive number or nil".to_string(),
             )),
         });
     }
@@ -121,6 +183,10 @@ impl LuaRuntime {
         let state = Rc::new(RefCell::new(FrameRuntimeState {
             visible: true,
             value_override: None,
+            fill_color_override: None,
+            stroke_color_override: None,
+            stroke_width_override: None,
+            text_color_override: None,
         }));
 
         let env = self.lua.create_table()?;
@@ -353,7 +419,116 @@ impl LuaRuntime {
             .create_function(|_, value: String| Ok(value.trim_end().to_string()))?;
         base.set("trim_right", trim_right)?;
 
+        let parse_rgb = self.lua.create_function(|lua, input: String| {
+            let (r, g, b) = Self::parse_component_string("parse_rgb", &input, 3)
+                .map(|parts| (parts[0], parts[1], parts[2]))?;
+            Self::create_rgb_table(lua, r, g, b)
+        })?;
+        base.set("parse_rgb", parse_rgb)?;
+
+        let parse_cmyk = self.lua.create_function(|lua, input: String| {
+            let parts = Self::parse_component_string("parse_cmyk", &input, 4)?;
+            let out = lua.create_table()?;
+            out.set("c", parts[0])?;
+            out.set("m", parts[1])?;
+            out.set("y", parts[2])?;
+            out.set("k", parts[3])?;
+            Ok(out)
+        })?;
+        base.set("parse_cmyk", parse_cmyk)?;
+
+        let cmyk_to_rgb = self
+            .lua
+            .create_function(|lua, (c, m, y, k): (f64, f64, f64, f64)| {
+                let (r, g, b) = Self::cmyk_to_rgb(c, m, y, k);
+                Self::create_rgb_table(lua, r, g, b)
+            })?;
+        base.set("cmyk_to_rgb", cmyk_to_rgb)?;
+
         Ok(())
+    }
+
+    fn runtime_rgb_to_lua_table(lua: &Lua, rgb: Option<&RuntimeRgb>) -> mlua::Result<LuaValue> {
+        match rgb {
+            None => Ok(LuaValue::Nil),
+            Some(rgb) => {
+                let table = lua.create_table()?;
+                table.set("r", rgb.r)?;
+                table.set("g", rgb.g)?;
+                table.set("b", rgb.b)?;
+                Ok(LuaValue::Table(table))
+            }
+        }
+    }
+
+    fn lua_value_to_runtime_rgb(field: &str, value: &LuaValue) -> mlua::Result<Option<RuntimeRgb>> {
+        match value {
+            LuaValue::Nil => Ok(None),
+            LuaValue::Table(table) => {
+                let has_cmyk = !matches!(table.get::<LuaValue>("c")?, LuaValue::Nil)
+                    || !matches!(table.get::<LuaValue>("m")?, LuaValue::Nil)
+                    || !matches!(table.get::<LuaValue>("y")?, LuaValue::Nil)
+                    || !matches!(table.get::<LuaValue>("k")?, LuaValue::Nil);
+                if has_cmyk {
+                    return Err(LuaError::RuntimeError(format!(
+                        "{field} expects RGB table {{ r, g, b }} or nil"
+                    )));
+                }
+
+                let r = Self::table_number_field(table, "r", field)?;
+                let g = Self::table_number_field(table, "g", field)?;
+                let b = Self::table_number_field(table, "b", field)?;
+                Ok(Some(RuntimeRgb { r, g, b }))
+            }
+            _ => Err(LuaError::RuntimeError(format!(
+                "{field} expects RGB table {{ r, g, b }} or nil"
+            ))),
+        }
+    }
+
+    fn table_number_field(table: &Table, key: &str, field: &str) -> mlua::Result<f64> {
+        match table.get::<LuaValue>(key)? {
+            LuaValue::Number(v) => Ok(v),
+            LuaValue::Integer(v) => Ok(v as f64),
+            _ => Err(LuaError::RuntimeError(format!(
+                "{field} expects RGB table {{ r, g, b }} or nil"
+            ))),
+        }
+    }
+
+    fn parse_component_string(op: &str, input: &str, expected: usize) -> mlua::Result<Vec<f64>> {
+        let parts = input
+            .split_whitespace()
+            .map(|part| {
+                part.parse::<f64>().map_err(|_| {
+                    LuaError::RuntimeError(format!(
+                        "{op} expects {expected} space-separated numeric components"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if parts.len() != expected {
+            return Err(LuaError::RuntimeError(format!(
+                "{op} expects {expected} space-separated numeric components"
+            )));
+        }
+        Ok(parts)
+    }
+
+    fn create_rgb_table(lua: &Lua, r: f64, g: f64, b: f64) -> mlua::Result<Table> {
+        let out = lua.create_table()?;
+        out.set("r", r)?;
+        out.set("g", g)?;
+        out.set("b", b)?;
+        Ok(out)
+    }
+
+    fn cmyk_to_rgb(c: f64, m: f64, y: f64, k: f64) -> (f64, f64, f64) {
+        let r = (1.0 - c) * (1.0 - k);
+        let g = (1.0 - m) * (1.0 - k);
+        let b = (1.0 - y) * (1.0 - k);
+        (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0))
     }
 
     fn round_to_places(value: f64, places: i64) -> f64 {

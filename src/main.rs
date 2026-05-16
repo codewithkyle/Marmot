@@ -454,6 +454,38 @@ fn batch(args: BatchArgs) -> Result<()> {
                         frame_idx
                     );
                 }
+                for frame_idx in warnings.unused_fill_color_frames {
+                    eprintln!(
+                        "warning: line {} ({}): frame {} has unused fill_color override",
+                        line_no,
+                        output_path.display(),
+                        frame_idx
+                    );
+                }
+                for frame_idx in warnings.unused_stroke_color_frames {
+                    eprintln!(
+                        "warning: line {} ({}): frame {} has unused stroke_color override",
+                        line_no,
+                        output_path.display(),
+                        frame_idx
+                    );
+                }
+                for frame_idx in warnings.unused_stroke_width_frames {
+                    eprintln!(
+                        "warning: line {} ({}): frame {} has unused stroke_width override",
+                        line_no,
+                        output_path.display(),
+                        frame_idx
+                    );
+                }
+                for frame_idx in warnings.unused_text_color_frames {
+                    eprintln!(
+                        "warning: line {} ({}): frame {} has unused text_color override",
+                        line_no,
+                        output_path.display(),
+                        frame_idx
+                    );
+                }
             }
             Ok(BatchResult::Failed {
                 line_no,
@@ -595,6 +627,30 @@ fn render(args: RenderArgs) -> Result<()> {
 
     for frame_idx in outcome.warnings.empty_value_frames {
         eprintln!("warning: frame {} has empty value", frame_idx);
+    }
+    for frame_idx in outcome.warnings.unused_fill_color_frames {
+        eprintln!(
+            "warning: frame {} has unused fill_color override",
+            frame_idx
+        );
+    }
+    for frame_idx in outcome.warnings.unused_stroke_color_frames {
+        eprintln!(
+            "warning: frame {} has unused stroke_color override",
+            frame_idx
+        );
+    }
+    for frame_idx in outcome.warnings.unused_stroke_width_frames {
+        eprintln!(
+            "warning: frame {} has unused stroke_width override",
+            frame_idx
+        );
+    }
+    for frame_idx in outcome.warnings.unused_text_color_frames {
+        eprintln!(
+            "warning: frame {} has unused text_color override",
+            frame_idx
+        );
     }
 
     let render = render_start.elapsed();

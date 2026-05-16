@@ -444,8 +444,12 @@ impl Parser {
         let layers = self.parse_optional_layers()?;
         let layer_lookup = Self::build_layer_lookup(&layers);
         let layer_frame_lookup = Self::build_layer_frame_lookup(&layers);
-        let draw_entries =
-            self.parse_draw(&slot_lookup, &layer_lookup, &frame_lookup, &layer_frame_lookup)?;
+        let draw_entries = self.parse_draw(
+            &slot_lookup,
+            &layer_lookup,
+            &frame_lookup,
+            &layer_frame_lookup,
+        )?;
         let draw_layers = draw_entries
             .iter()
             .filter_map(|entry| match entry {

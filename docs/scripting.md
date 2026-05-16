@@ -87,6 +87,18 @@ Structured/date helpers:
   - Supports token replacement for `YYYY`, `MM`, and `DD`.
   - Example: `date_format("2026-05-15", "MM/DD/YYYY")` -> `"05/15/2026"`.
 
+Color helpers:
+
+- `parse_rgb(input) -> table`
+  - Parses space-separated RGB components into `{ r, g, b }`.
+  - Example: `parse_rgb("0.25 0.25 0.25")` -> `{ r = 0.25, g = 0.25, b = 0.25 }`.
+- `parse_cmyk(input) -> table`
+  - Parses space-separated CMYK components into `{ c, m, y, k }`.
+  - Example: `parse_cmyk("0.25 0.25 0.25 0.25")` -> `{ c = 0.25, m = 0.25, y = 0.25, k = 0.25 }`.
+- `cmyk_to_rgb(c, m, y, k) -> table`
+  - Converts CMYK to RGB and returns `{ r, g, b }`.
+  - RGB outputs are clamped to `[0, 1]`.
+
 ## `data` API
 
 ```lua
@@ -116,11 +128,17 @@ Rules:
 
 - `frame.visible: boolean`
 - `frame.value: string | nil`
+- `frame.fill_color: { r: number, g: number, b: number } | nil`
+- `frame.stroke_color: { r: number, g: number, b: number } | nil`
+- `frame.stroke_width: number | nil` (must be positive when set)
+- `frame.text_color: { r: number, g: number, b: number } | nil`
 
 Rules:
 
 - Invalid `frame.visible` assignment fails render hard.
 - Invalid `frame.value` assignment fails render hard.
+- `frame.fill_color`, `frame.stroke_color`, and `frame.text_color` accept RGB tables only (CMYK tables are rejected).
+- Invalid `frame.stroke_width` assignment fails render hard.
 - `frame.value = nil` clears override.
 
 ## Override Semantics
@@ -132,6 +150,13 @@ When `frame.value` is non-empty string:
 - `barcode` uses script override as barcode payload.
 
 When `frame.value` is `nil` or empty string, renderer falls back to normal PSL evaluation.
+
+When style overrides are set:
+
+- `frame.fill_color` overrides color used by `fill` on rect paths.
+- `frame.stroke_color` and `frame.stroke_width` override color/width used by `stroke` on line/rect paths.
+- `frame.text_color` overrides text color for `textbox` ops.
+- Unused style overrides emit non-fatal render warnings.
 
 ## Error Policy
 

@@ -49,9 +49,20 @@ pub struct RenderOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeRgb {
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrameRuntimeState {
     pub visible: bool,
     pub value_override: Option<String>,
+    pub fill_color_override: Option<RuntimeRgb>,
+    pub stroke_color_override: Option<RuntimeRgb>,
+    pub stroke_width_override: Option<f64>,
+    pub text_color_override: Option<RuntimeRgb>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +82,10 @@ impl FrameRuntimeState {
         Self {
             visible: true,
             value_override: None,
+            fill_color_override: None,
+            stroke_color_override: None,
+            stroke_width_override: None,
+            text_color_override: None,
         }
     }
 }
@@ -148,6 +163,10 @@ struct EncodedMatrix {
 #[derive(Debug, Default)]
 pub struct RenderWarnings {
     pub empty_value_frames: Vec<u32>,
+    pub unused_fill_color_frames: Vec<u32>,
+    pub unused_stroke_color_frames: Vec<u32>,
+    pub unused_stroke_width_frames: Vec<u32>,
+    pub unused_text_color_frames: Vec<u32>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1673,6 +1692,43 @@ fn warn_if_empty_set_value(
     }
 }
 
+fn warn_if_unused_style_overrides(
+    frame_index: u32,
+    runtime: Option<&FrameRuntimeState>,
+    ops: &[DrawOp],
+    warnings: &mut RenderWarnings,
+) {
+    let Some(runtime) = runtime else {
+        return;
+    };
+
+    let mut has_fill = false;
+    let mut has_stroke = false;
+    let mut has_textbox = false;
+
+    for op in ops {
+        match op {
+            DrawOp::Fill => has_fill = true,
+            DrawOp::Stroke => has_stroke = true,
+            DrawOp::TextBox { .. } => has_textbox = true,
+            _ => {}
+        }
+    }
+
+    if runtime.fill_color_override.is_some() && !has_fill {
+        warnings.unused_fill_color_frames.push(frame_index);
+    }
+    if runtime.stroke_color_override.is_some() && !has_stroke {
+        warnings.unused_stroke_color_frames.push(frame_index);
+    }
+    if runtime.stroke_width_override.is_some() && !has_stroke {
+        warnings.unused_stroke_width_frames.push(frame_index);
+    }
+    if runtime.text_color_override.is_some() && !has_textbox {
+        warnings.unused_text_color_frames.push(frame_index);
+    }
+}
+
 fn execute_draw_op(
     op: &DrawOp,
     runtime: Option<&FrameRuntimeState>,
@@ -1761,6 +1817,17 @@ fn execute_draw_op(
             let path = pending_path
                 .take()
                 .expect("parser should prevent stroke without a current path");
+            ctx.save()?;
+            if let Some(runtime_color) = runtime.and_then(|r| r.stroke_color_override.as_ref()) {
+                ctx.set_source_rgb(
+                    runtime_color.r.clamp(0.0, 1.0),
+                    runtime_color.g.clamp(0.0, 1.0),
+                    runtime_color.b.clamp(0.0, 1.0),
+                );
+            }
+            if let Some(stroke_width) = runtime.and_then(|r| r.stroke_width_override) {
+                ctx.set_line_width(stroke_width);
+            }
             match path {
                 PendingPath::Line { x1, y1, x2, y2 } => {
                     ctx.move_to(x1, y1);
@@ -1777,11 +1844,20 @@ fn execute_draw_op(
                     ctx.stroke()?;
                 }
             }
+            ctx.restore()?;
         }
         DrawOp::Fill => {
             let path = pending_path
                 .take()
                 .expect("parser should prevent fill without a current path");
+            ctx.save()?;
+            if let Some(runtime_color) = runtime.and_then(|r| r.fill_color_override.as_ref()) {
+                ctx.set_source_rgb(
+                    runtime_color.r.clamp(0.0, 1.0),
+                    runtime_color.g.clamp(0.0, 1.0),
+                    runtime_color.b.clamp(0.0, 1.0),
+                );
+            }
             match path {
                 PendingPath::Rect {
                     x,
@@ -1796,6 +1872,7 @@ fn execute_draw_op(
                     panic!("parser should prevent filling a line");
                 }
             }
+            ctx.restore()?;
         }
         DrawOp::Image {
             asset,
@@ -1832,6 +1909,14 @@ fn execute_draw_op(
             width,
             height,
         } => {
+            ctx.save()?;
+            if let Some(runtime_color) = runtime.and_then(|r| r.text_color_override.as_ref()) {
+                ctx.set_source_rgb(
+                    runtime_color.r.clamp(0.0, 1.0),
+                    runtime_color.g.clamp(0.0, 1.0),
+                    runtime_color.b.clamp(0.0, 1.0),
+                );
+            }
             let value = match runtime.and_then(|r| r.value_override.as_ref()) {
                 Some(v) if !v.is_empty() => v.clone(),
                 _ => eval_text(text, data)?,
@@ -1846,6 +1931,7 @@ fn execute_draw_op(
                 eval_number(width, data)?,
                 eval_number(height, data)?,
             )?;
+            ctx.restore()?;
         }
         DrawOp::Barcode { .. } => unreachable!("barcode handled in execute_draw"),
     }
@@ -1874,6 +1960,7 @@ fn execute_draw(
                 let runtime = frame_state.get(&frame.index);
 
                 warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+                warn_if_unused_style_overrides(frame.index, runtime, &frame.ops, &mut warnings);
 
                 if !should_render_frame(None, runtime) {
                     continue;
@@ -1959,6 +2046,7 @@ fn execute_draw(
                     let runtime = frame_state.get(&frame.index);
 
                     warn_if_empty_set_value(frame.index, runtime, &mut warnings);
+                    warn_if_unused_style_overrides(frame.index, runtime, &frame.ops, &mut warnings);
 
                     if !should_render_frame(runtime_layer, runtime) {
                         continue;
@@ -1966,92 +2054,98 @@ fn execute_draw(
 
                     for op in &frame.ops {
                         match op {
-                DrawOp::Barcode {
-                    value,
-                    symbology,
-                    x,
-                    y,
-                    width,
-                    height,
-                } => {
-                    let value = match runtime.and_then(|r| r.value_override.as_ref()) {
-                        Some(v) if !v.is_empty() => v.clone(),
-                        _ => eval_text(value, data)?,
-                    };
-                    let x = eval_number(x, data)?;
-                    let y = eval_number(y, data)?;
-                    let width = eval_number(width, data)?;
-                    let height = eval_number(height, data)?;
+                            DrawOp::Barcode {
+                                value,
+                                symbology,
+                                x,
+                                y,
+                                width,
+                                height,
+                            } => {
+                                let value = match runtime.and_then(|r| r.value_override.as_ref()) {
+                                    Some(v) if !v.is_empty() => v.clone(),
+                                    _ => eval_text(value, data)?,
+                                };
+                                let x = eval_number(x, data)?;
+                                let y = eval_number(y, data)?;
+                                let width = eval_number(width, data)?;
+                                let height = eval_number(height, data)?;
 
-                    match symbology {
-                        BarcodeSymbology::Code39 => {
-                            render_code39(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::Code128A => {
-                            render_code128(ctx, symbology, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::Code128B => {
-                            render_code128(ctx, symbology, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::Code128C => {
-                            render_code128(ctx, symbology, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::UPCA => {
-                            render_upca(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::EAN13 => {
-                            render_ean13(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::EAN8 => {
-                            render_ean8(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::MSI => {
-                            render_msi(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::QR => {
-                            render_qr(ctx, &value, x, y, width, height)?;
-                        }
-                        BarcodeSymbology::DataMatrix => {
-                            render_datamatrix(ctx, &value, x, y, width, height)?;
-                        }
-                    }
-                }
-                        DrawOp::SetImageFit { .. }
-                        | DrawOp::SetFontFamily { .. }
-                        | DrawOp::SetTextFitMaxSize { .. }
-                        | DrawOp::SetTextFitMinSize { .. }
-                        | DrawOp::SetTextFit { .. }
-                        | DrawOp::SetLineBreakMode { .. }
-                        | DrawOp::SetVerticalAlignment { .. }
-                        | DrawOp::SetTextAlignment { .. }
-                        | DrawOp::SetRgb { .. }
-                        | DrawOp::SetCmyk { .. }
-                        | DrawOp::SetStrokeWidth { .. }
-                        | DrawOp::SetFontSize { .. }
-                        | DrawOp::LinePath { .. }
-                        | DrawOp::RectPath { .. }
-                        | DrawOp::Stroke
-                        | DrawOp::Fill
-                        | DrawOp::Image { .. }
-                        | DrawOp::LoadImage { .. }
-                        | DrawOp::TextBox { .. } => {
-                            execute_draw_op(
-                                op,
-                                runtime,
-                                data,
-                                &mut state,
-                                &mut pending_path,
-                                &layout,
-                                ctx,
-                                context,
-                                cache,
-                                host_assets,
-                            )?;
+                                match symbology {
+                                    BarcodeSymbology::Code39 => {
+                                        render_code39(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::Code128A => {
+                                        render_code128(
+                                            ctx, symbology, &value, x, y, width, height,
+                                        )?;
+                                    }
+                                    BarcodeSymbology::Code128B => {
+                                        render_code128(
+                                            ctx, symbology, &value, x, y, width, height,
+                                        )?;
+                                    }
+                                    BarcodeSymbology::Code128C => {
+                                        render_code128(
+                                            ctx, symbology, &value, x, y, width, height,
+                                        )?;
+                                    }
+                                    BarcodeSymbology::UPCA => {
+                                        render_upca(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::EAN13 => {
+                                        render_ean13(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::EAN8 => {
+                                        render_ean8(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::MSI => {
+                                        render_msi(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::QR => {
+                                        render_qr(ctx, &value, x, y, width, height)?;
+                                    }
+                                    BarcodeSymbology::DataMatrix => {
+                                        render_datamatrix(ctx, &value, x, y, width, height)?;
+                                    }
+                                }
+                            }
+                            DrawOp::SetImageFit { .. }
+                            | DrawOp::SetFontFamily { .. }
+                            | DrawOp::SetTextFitMaxSize { .. }
+                            | DrawOp::SetTextFitMinSize { .. }
+                            | DrawOp::SetTextFit { .. }
+                            | DrawOp::SetLineBreakMode { .. }
+                            | DrawOp::SetVerticalAlignment { .. }
+                            | DrawOp::SetTextAlignment { .. }
+                            | DrawOp::SetRgb { .. }
+                            | DrawOp::SetCmyk { .. }
+                            | DrawOp::SetStrokeWidth { .. }
+                            | DrawOp::SetFontSize { .. }
+                            | DrawOp::LinePath { .. }
+                            | DrawOp::RectPath { .. }
+                            | DrawOp::Stroke
+                            | DrawOp::Fill
+                            | DrawOp::Image { .. }
+                            | DrawOp::LoadImage { .. }
+                            | DrawOp::TextBox { .. } => {
+                                execute_draw_op(
+                                    op,
+                                    runtime,
+                                    data,
+                                    &mut state,
+                                    &mut pending_path,
+                                    &layout,
+                                    ctx,
+                                    context,
+                                    cache,
+                                    host_assets,
+                                )?;
+                            }
                         }
                     }
                 }
             }
-        }
         }
     }
 

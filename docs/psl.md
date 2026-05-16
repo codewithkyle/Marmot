@@ -291,6 +291,10 @@ At render time, scripts can mutate runtime properties:
 
 - `frame.visible: boolean`
 - `frame.value: string | nil`
+- `frame.fill_color: { r, g, b } | nil`
+- `frame.stroke_color: { r, g, b } | nil`
+- `frame.stroke_width: number | nil`
+- `frame.text_color: { r, g, b } | nil`
 
 Override behavior:
 
@@ -299,6 +303,9 @@ Override behavior:
   - `image` asset alias
   - `barcode` payload
 - `frame.value = nil` or empty string falls back to normal PSL draw-op evaluation.
+- `frame.fill_color` applies to `fill` on rect paths.
+- `frame.stroke_color` and `frame.stroke_width` apply to `stroke` on line/rect paths.
+- `frame.text_color` applies to `textbox` text color.
 
 For full API and runtime details, see [`docs/scripting.md`](docs/scripting.md).
 
