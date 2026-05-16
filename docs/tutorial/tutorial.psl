@@ -10,6 +10,7 @@ slots begin
   buy_qty int required
   get_qty int required
   promo_url string required
+  customer_logo string required
 end
 
 fonts begin
@@ -17,7 +18,6 @@ fonts begin
 end
 
 assets begin
-  logo image "assets/sprout-basket.png"
   save_5 image "assets/save-5.png"
 end
 
@@ -87,6 +87,7 @@ draw begin
 
   frame 5 begin
     % Brand image
+    $(customer_logo) (logo) loadimage
     contain imagefit
     (logo) 285 90 110 110 image
   end
