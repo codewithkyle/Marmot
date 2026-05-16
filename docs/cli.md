@@ -162,34 +162,6 @@ Batch timing output (`--timings`) includes:
 - Render latency stats across rendered records: `avg`, `min`, `max`, `p90`, `p95`, `p99`, `p99.9`.
 - Script and draw stats across rendered records: `script avg/min/max`, `draw avg/min/max`.
 
-## Scripting Runtime
-
-Scripting is frame-scoped and package-based.
-
-- Script files are loaded from `scripts/<frame_id>.lua`.
-- `<frame_id>` must match a frame id declared in `frames begin ... end`.
-- Missing script for a frame is valid (no-op).
-- Unknown script file (no matching frame id) fails context build.
-
-Lua globals exposed at script runtime:
-
-- `data.getSlot("name")`
-  - reads top-level JSON field from render/batch record
-  - returns Lua `string`, `number`, `boolean`, or `nil`
-  - arrays/objects fail hard with runtime error
-- `frame.visible`
-  - strict boolean
-  - invalid assignment fails render hard
-- `frame.value`
-  - strict `string | nil`
-  - when non-empty string: overrides value-bearing ops in that frame (`textbox`, `image`, `barcode`)
-  - when `nil` or empty string: renderer falls back to normal PSL evaluation
-
-Error behavior:
-
-- Script compile/runtime/type errors fail render immediately.
-- Script errors include frame id/index context.
-
 Output name template notes:
 
 - `{index}` uses 1-based input line number.
