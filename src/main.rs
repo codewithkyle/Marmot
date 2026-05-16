@@ -54,6 +54,7 @@ struct RenderArgs {
     output_file: PathBuf,
     enable_timings: bool,
     output_type: OutputType,
+    dpi: u16,
 }
 
 struct PackArgs {
@@ -74,6 +75,7 @@ struct BatchArgs {
     trust_data: bool,
     enable_timings: bool,
     output_type: OutputType,
+    dpi: u16,
 }
 
 fn main() -> Result<()> {
@@ -101,6 +103,7 @@ fn main() -> Result<()> {
                         .long("timings")
                         .action(ArgAction::SetTrue),
                 )
+                .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
         )
         .subcommand(
             Command::new("pack")
@@ -172,7 +175,8 @@ fn main() -> Result<()> {
                         .long("trust-data")
                         .action(ArgAction::SetTrue)
                         .help("Skip upfront slot validation for each record"),
-                ),
+                )
+                .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
         )
         .get_matches();
 
@@ -275,6 +279,7 @@ fn batch(args: BatchArgs) -> Result<()> {
     let output_dir = Arc::new(args.output_dir.clone());
     let output_name = Arc::new(args.output_name.clone());
     let output_type = Arc::new(args.output_type.clone());
+    let dpi = Arc::new(args.dpi.clone());
     let trust_data = args.trust_data;
 
     let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
@@ -294,6 +299,7 @@ fn batch(args: BatchArgs) -> Result<()> {
         let output_dir = Arc::clone(&output_dir);
         let output_name = Arc::clone(&output_name);
         let output_type = Arc::clone(&output_type);
+        let dpi = Arc::clone(&dpi);
 
         let handle = thread::spawn(move || {
             let mut render_cache = RenderCache::default();
@@ -319,6 +325,7 @@ fn batch(args: BatchArgs) -> Result<()> {
                     &output_type,
                     trust_data,
                     &mut render_cache,
+                    &dpi,
                 );
 
                 if tx.send(result).is_err() {
@@ -512,6 +519,7 @@ fn render(args: RenderArgs) -> Result<()> {
             &args.output_file,
             data.as_ref(),
             &render_context,
+            args.dpi,
         )
         .map_err(|err| anyhow!("failed to render PNG: {err:?}"))?,
     };
@@ -614,6 +622,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .get_one::<String>("output-type")
         .map(|s| OutputType::try_from_word(s))
         .unwrap_or(Ok(OutputType::PDF))?;
+    let dpi = matches.get_one::<u16>("dpi").expect("dpi has default");
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -627,6 +636,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         trust_data,
         enable_timings,
         output_type,
+        dpi: *dpi,
     })
 }
 
@@ -685,12 +695,15 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
 
     let enable_timings = matches.get_one::<bool>("timings").unwrap_or(&false);
 
+    let dpi = matches.get_one::<u16>("dpi").expect("dpi has default");
+
     let args = RenderArgs {
         package_file,
         data_file,
         output_file,
         enable_timings: *enable_timings,
         output_type,
+        dpi: *dpi,
     };
 
     if let Some(data_file) = &args.data_file {
@@ -839,6 +852,7 @@ fn process_batch_line(
     output_type: &OutputType,
     trust_data: bool,
     render_cache: &mut RenderCache,
+    dpi: &u16,
 ) -> BatchResult {
     let record: Value = match serde_json::from_str(&line) {
         Ok(v) => v,
@@ -900,7 +914,8 @@ fn process_batch_line(
             &output_path,
             Some(&record),
             &render_context,
-        )
+            *dpi,
+        ),
     };
 
     match outcome {

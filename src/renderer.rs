@@ -1586,9 +1586,10 @@ pub fn render_png(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
+    dpi: u16
 ) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
-    let scale = 300.0 / 72.0;
+    let scale = dpi as f64 / 72.0;
     let (w, h) = normalize_surface_dims(page.width * scale, page.height * scale);
     let surface = ImageSurface::create(Format::ARgb32, w, h)?;
     let ctx = Context::new(&surface)?;
