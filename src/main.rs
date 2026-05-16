@@ -22,7 +22,10 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::{RenderCache, RenderWarnings, render_pdf, render_pdf_with_cache, render_png, render_png_with_cache},
+    renderer::{
+        HostAssetPolicy, RenderCache, RenderWarnings, render_pdf, render_pdf_with_cache,
+        render_png, render_png_with_cache,
+    },
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -80,6 +83,7 @@ struct RenderArgs {
     output_type: OutputType,
     dpi: u16,
     dither: Option<DitherType>,
+    allow_host_assets: bool,
 }
 
 struct PackArgs {
@@ -103,6 +107,7 @@ struct BatchArgs {
     output_type: OutputType,
     dpi: u16,
     dither: Option<DitherType>,
+    allow_host_assets: bool,
 }
 
 fn main() -> Result<()> {
@@ -132,6 +137,12 @@ fn main() -> Result<()> {
                 )
                 .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
                 .arg(Arg::new("dither").long("dither").value_name("TYPE").value_parser(["floyd","atkinson","stucki","burkes","jarvis","sierra3"]))
+                .arg(
+                    Arg::new("allow-host-assets")
+                        .long("allow-host-assets")
+                        .action(ArgAction::SetTrue)
+                        .help("Allow loadimage to read host filesystem paths"),
+                )
         )
         .subcommand(
             Command::new("pack")
@@ -207,6 +218,12 @@ fn main() -> Result<()> {
                 )
                 .arg(Arg::new("dpi").long("dpi").value_name("NUMBER").value_parser(clap::value_parser!(u16).range(72..=1200)).default_value("300"))
                 .arg(Arg::new("dither").long("dither").value_name("TYPE").value_parser(["floyd","atkinson","stucki","burkes","jarvis","sierra3"]))
+                .arg(
+                    Arg::new("allow-host-assets")
+                        .long("allow-host-assets")
+                        .action(ArgAction::SetTrue)
+                        .help("Allow loadimage to read host filesystem paths"),
+                )
         )
         .get_matches();
 
@@ -314,6 +331,10 @@ fn batch(args: BatchArgs) -> Result<()> {
     let dither = args.dither;
     let remap_source = Arc::new(load_remap_palette_if_needed(&package, args.dither)?);
     let trust_data = args.trust_data;
+    let host_asset_policy = Arc::new(HostAssetPolicy {
+        allow: args.allow_host_assets,
+        cwd: std::env::current_dir().context("failed to read current working directory")?,
+    });
 
     let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
     let (result_tx, result_rx) = mpsc::channel::<BatchResult>();
@@ -333,6 +354,7 @@ fn batch(args: BatchArgs) -> Result<()> {
         let output_name = Arc::clone(&output_name);
         let output_type = Arc::clone(&output_type);
         let remap_source = Arc::clone(&remap_source);
+        let host_asset_policy = Arc::clone(&host_asset_policy);
 
         let handle = thread::spawn(move || {
             let mut render_cache = RenderCache::default();
@@ -361,6 +383,7 @@ fn batch(args: BatchArgs) -> Result<()> {
                     &dpi,
                     dither,
                     remap_source.as_deref(),
+                    &host_asset_policy,
                 );
 
                 if tx.send(result).is_err() {
@@ -534,6 +557,10 @@ fn render(args: RenderArgs) -> Result<()> {
 
     let render_context = build_render_context(&template, &package)?;
     let remap_source = load_remap_palette_if_needed(&package, args.dither)?;
+    let host_asset_policy = HostAssetPolicy {
+        allow: args.allow_host_assets,
+        cwd: std::env::current_dir().context("failed to read current working directory")?,
+    };
 
     let prep = prep_start.elapsed();
     let render_start = Instant::now();
@@ -546,6 +573,7 @@ fn render(args: RenderArgs) -> Result<()> {
             &args.output_file,
             data.as_ref(),
             &render_context,
+            &host_asset_policy,
         )
         .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?,
         OutputType::PNG => render_png(
@@ -555,6 +583,7 @@ fn render(args: RenderArgs) -> Result<()> {
             &args.output_file,
             data.as_ref(),
             &render_context,
+            &host_asset_policy,
             args.dpi,
             args.dither,
             remap_source.as_deref(),
@@ -665,6 +694,9 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         .get_one::<String>("dither")
         .map(|s| DitherType::try_from_word(s))
         .transpose()?;
+    let allow_host_assets = *matches
+        .get_one::<bool>("allow-host-assets")
+        .unwrap_or(&false);
 
     ensure_file_exists(&records_file)?;
     ensure_dir_exists(&output_dir)?;
@@ -680,6 +712,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
         output_type,
         dpi: *dpi,
         dither,
+        allow_host_assets,
     })
 }
 
@@ -746,6 +779,9 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .get_one::<String>("dither")
         .map(|s| DitherType::try_from_word(s))
         .transpose()?;
+    let allow_host_assets = *matches
+        .get_one::<bool>("allow-host-assets")
+        .unwrap_or(&false);
 
     let args = RenderArgs {
         package_file,
@@ -755,6 +791,7 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         output_type,
         dpi: *dpi,
         dither,
+        allow_host_assets,
     };
 
     if let Some(data_file) = &args.data_file {
@@ -920,7 +957,8 @@ fn process_batch_line(
     render_cache: &mut RenderCache,
     dpi: &u16,
     dither: Option<DitherType>,
-    remap_source: Option<&str>
+    remap_source: Option<&str>,
+    host_assets: &HostAssetPolicy,
 ) -> BatchResult {
     let record: Value = match serde_json::from_str(&line) {
         Ok(v) => v,
@@ -974,6 +1012,7 @@ fn process_batch_line(
             &output_path,
             Some(&record),
             &render_context,
+            host_assets,
             render_cache,
         ),
         OutputType::PNG => render_png_with_cache(
@@ -983,6 +1022,7 @@ fn process_batch_line(
             &output_path,
             Some(&record),
             &render_context,
+            host_assets,
             *dpi,
             dither,
             remap_source,

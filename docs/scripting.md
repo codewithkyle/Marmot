@@ -56,7 +56,7 @@ Rules:
 When `frame.value` is non-empty string:
 
 - `textbox` uses script override text.
-- `image` uses script override as asset alias.
+- `image` uses script override as asset alias (package alias or alias created by `loadimage`).
 - `barcode` uses script override as barcode payload.
 
 When `frame.value` is `nil` or empty string, renderer falls back to normal PSL evaluation.

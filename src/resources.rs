@@ -82,7 +82,23 @@ fn register_font(path: PathBuf) -> Result<RegisteredFont> {
 }
 
 fn register_asset(name: String, path: PathBuf, ty: AssetType) -> Result<RegisteredAsset> {
-    let metadata = fs::metadata(&path)
+    let (byte_len, bytes) = read_asset_bytes(&name, &path)?;
+
+    let image = match ty {
+        AssetType::Image => Some(validate_image_bytes(&name, &path, &bytes)?),
+    };
+
+    Ok(RegisteredAsset {
+        path,
+        name,
+        ty,
+        byte_len,
+        image: image,
+    })
+}
+
+fn read_asset_bytes(name: &str, path: &Path) -> Result<(u64, Vec<u8>)> {
+    let metadata = fs::metadata(path)
         .with_context(|| format!("asset {name} metadata read failed: {}", path.display()))?;
 
     if !metadata.is_file() {
@@ -103,22 +119,25 @@ fn register_asset(name: String, path: PathBuf, ty: AssetType) -> Result<Register
     }
 
     let bytes =
-        fs::read(&path).with_context(|| format!("asset {name} read failed: {}", path.display()))?;
+        fs::read(path).with_context(|| format!("asset {name} read failed: {}", path.display()))?;
 
-    let image = match ty {
-        AssetType::Image => Some(validate_image_asset(&name, &path, &bytes)?),
-    };
+    Ok((byte_len, bytes))
+}
+
+pub fn load_host_image_asset(alias: &str, path: &Path) -> Result<RegisteredAsset> {
+    let (byte_len, bytes) = read_asset_bytes(alias, path)?;
+    let image = validate_image_bytes(alias, path, &bytes)?;
 
     Ok(RegisteredAsset {
-        path,
-        name,
-        ty,
+        path: path.to_path_buf(),
+        name: alias.to_string(),
+        ty: AssetType::Image,
         byte_len,
-        image: image,
+        image: Some(image),
     })
 }
 
-fn validate_image_asset(name: &str, path: &Path, bytes: &[u8]) -> Result<RegisteredImageInfo> {
+pub fn validate_image_bytes(name: &str, path: &Path, bytes: &[u8]) -> Result<RegisteredImageInfo> {
     let format = image::guess_format(bytes).with_context(|| {
         format!(
             "asset {name} iamge probe failed (unknown/invalid header): {}",

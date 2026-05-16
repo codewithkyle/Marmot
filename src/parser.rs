@@ -222,6 +222,10 @@ pub enum DrawOp {
         width: NumberValue,
         height: NumberValue,
     },
+    LoadImage {
+        path: TextValue,
+        alias: TextValue,
+    },
     Barcode {
         value: TextValue,
         symbology: BarcodeSymbology,
@@ -896,6 +900,13 @@ impl Parser {
                     width,
                     height,
                 }))
+            }
+            TokenKind::Word(word) if word == "loadimage" => {
+                Self::require_stack(stack, "loadimage", 2, &token)?;
+                let alias = Self::pop_string(stack, "loadimage", &token)?;
+                let path = Self::pop_string(stack, "loadimage", &token)?;
+
+                Ok(Some(DrawOp::LoadImage { path, alias }))
             }
             TokenKind::Word(word) if word == "font" => {
                 Self::require_stack(stack, "font", 1, &token)?;

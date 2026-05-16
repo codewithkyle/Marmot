@@ -62,7 +62,7 @@ Behavior:
 Render a `.marmot` package into a PDF or PNG.
 
 ```bash
-marmot render [--timings] [--output-type <pdf|png>] [--dpi <72-1200>] [--dither <type>] --output <output> <package> [data]
+marmot render [--timings] [--output-type <pdf|png>] [--dpi <72-1200>] [--dither <type>] [--allow-host-assets] --output <output> <package> [data]
 ```
 
 Example with data:
@@ -95,6 +95,8 @@ Behavior:
 - If `[data]` is provided, parses JSON and validates slot types/required fields.
 - Builds render context, including package font aliases.
 - Loads package frame scripts from `scripts/*.lua` when present.
+- Allows `loadimage` host filesystem reads only with `--allow-host-assets`.
+- Resolves relative `loadimage` host paths from current working directory.
 - Renders to `--output` as PDF or PNG (`--output-type`, default `pdf`).
 - Prints non-fatal render warnings to stderr (for example empty frame values).
 - With `--timings`, prints elapsed time for `prep`, `render`, `script`, `draw`, and `total`.
@@ -105,6 +107,7 @@ Notes:
 - Template `frames begin ... end` and framed `draw` sections are required.
 - `--dpi` applies to PNG output (default `300`, range `72..=1200`).
 - `--dither` applies to PNG output and requires `remap.plt` in the package.
+- `--allow-host-assets` enables runtime host filesystem image reads via PSL `loadimage`.
 - Supported dither types: `floyd`, `atkinson`, `stucki`, `burkes`, `jarvis`, `sierra3`.
 - `--timings` is intended for local profiling and benchmarking runs.
 
@@ -147,6 +150,7 @@ Options:
 - `--output-type <TYPE>`: output format, `pdf` or `png` (default `pdf`)
 - `--dpi <NUMBER>`: PNG DPI (`72..=1200`, default `300`)
 - `--dither <TYPE>`: PNG dither algorithm; requires package `remap.plt`
+- `--allow-host-assets`: enable runtime host filesystem image reads via PSL `loadimage`
 - `-j, --jobs <N>`: worker count (`0` = auto-detect CPU parallelism)
 - `--trust-data`: skip upfront per-record slot validation in batch mode
 - `--timings`: print stage timings and per-record render latency distribution
@@ -166,6 +170,7 @@ Behavior:
 - Reads `<records>` as JSON Lines (one JSON object per line).
 - Ignores blank lines.
 - Uses a worker pool to render records in parallel.
+- Resolves relative `loadimage` host paths from current working directory.
 - Produces one PDF/PNG per successful record.
 - Prints per-record non-fatal render warnings to stderr.
 - Prints `success`, `failed`, and `skipped` counts at completion.

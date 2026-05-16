@@ -388,6 +388,12 @@ $(product_name) titlecase 20 40 260 40 textbox
 
 ## Image drawing
 
+- `loadimage` consumes two values:
+  - `path alias`
+  - `path` is a text value resolved at render time
+  - `alias` is a text value used by later `image` operators
+  - Requires CLI flag `--allow-host-assets` for host filesystem access
+  - Relative paths are resolved from current working directory where `marmot render`/`marmot batch` runs
 - `image` consumes five values:
   - `asset x y width height`
   - `asset` is a text value (literal or string slot)
@@ -397,8 +403,9 @@ $(product_name) titlecase 20 40 260 40 textbox
 Example:
 
 ```psl
+"./logos/sprout-basket.png" "customer_logo" loadimage
 contain imagefit
-(logo) 20 20 120 60 image
+(customer_logo) 20 20 120 60 image
 ```
 
 ## Barcode drawing

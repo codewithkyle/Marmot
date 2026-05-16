@@ -1459,6 +1459,62 @@ end
 }
 
 #[test]
+fn parses_loadimage_draw_op() {
+    let source = r#"%!PSL 0.1
+page 200 100
+frames begin
+  1 FRAME_1
+end
+
+draw begin
+  frame 1 begin
+      "./logos/sprout-basket.png" "customer_logo" loadimage
+  end
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let template = parser.parse_template().unwrap();
+    assert_eq!(
+        template.draw_frames[0].ops,
+        vec![DrawOp::LoadImage {
+            path: TextValue::Literal("./logos/sprout-basket.png".to_string()),
+            alias: TextValue::Literal("customer_logo".to_string()),
+        }]
+    );
+}
+
+#[test]
+fn errors_when_loadimage_alias_operand_is_not_string() {
+    let source = r#"%!PSL 0.1
+page 200 100
+frames begin
+  1 FRAME_1
+end
+
+draw begin
+  frame 1 begin
+      "./logos/sprout-basket.png" 123 loadimage
+  end
+end
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+    assert!(matches!(
+        err,
+        ParseError::UnexpectedStackValue {
+            operator,
+            expected,
+            found,
+            ..
+        } if operator == "loadimage" && expected == "string" && found == "number"
+    ));
+}
+
+#[test]
 fn parses_imagefit_commands() {
     let source = r#"%!PSL 0.1
 page 100 100

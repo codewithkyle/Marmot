@@ -30,6 +30,17 @@ fn empty_render_context() -> RenderContext {
     }
 }
 
+fn host_assets_disabled() -> HostAssetPolicy {
+    HostAssetPolicy {
+        allow: false,
+        cwd: std::env::current_dir().unwrap(),
+    }
+}
+
+fn host_assets_enabled(cwd: PathBuf) -> HostAssetPolicy {
+    HostAssetPolicy { allow: true, cwd }
+}
+
 fn render_context_with_assets(assets: HashMap<String, RegisteredAsset>) -> RenderContext {
     RenderContext {
         fonts: HashMap::new(),
@@ -72,6 +83,7 @@ fn execute_draw_ops_for_test(draw_ops: &[DrawOp], data: Option<&Value>) -> Resul
         data,
         &render_context,
         &mut cache,
+        &host_assets_disabled(),
     )
     .map(|_| ())
 }
@@ -85,7 +97,16 @@ fn render_pdf_for_test(
 ) -> Result<(), RenderError> {
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf(page, &frames, &draw_frames, output_path, data, context).map(|_| ())
+    render_pdf(
+        page,
+        &frames,
+        &draw_frames,
+        output_path,
+        data,
+        context,
+        &host_assets_disabled(),
+    )
+    .map(|_| ())
 }
 
 fn render_png_for_test(
@@ -104,6 +125,7 @@ fn render_png_for_test(
         output_path,
         data,
         context,
+        &host_assets_disabled(),
         74,
         None,
         None,
@@ -126,7 +148,15 @@ fn render_pdf_with_cache_for_test(
 
     let mut frame_state = build_initial_frame_state(&frames);
     run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
-    execute_draw(&ctx, &draw_frames, &frame_state, data, context, cache)?;
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        data,
+        context,
+        cache,
+        &host_assets_disabled(),
+    )?;
     surface.finish();
 
     Ok(())
@@ -800,6 +830,195 @@ fn executes_image_draw_op() {
         err,
         RenderError::MissingAssetAlias { alias } if alias == "logo"
     ));
+}
+
+#[test]
+fn loadimage_errors_when_host_assets_disabled() {
+    use crate::parser::TextValue;
+
+    let draw_ops = vec![DrawOp::LoadImage {
+        path: TextValue::Literal("./logos/sprout-basket.png".to_string()),
+        alias: TextValue::Literal("customer_logo".to_string()),
+    }];
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    let context = empty_render_context();
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(&draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
+
+    let err = execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        None,
+        &context,
+        &mut cache,
+        &host_assets_disabled(),
+    )
+    .unwrap_err();
+
+    assert!(matches!(err, RenderError::HostAssetAccessDenied { .. }));
+}
+
+#[test]
+fn loadimage_reads_host_asset_and_renders_image() {
+    use crate::parser::TextValue;
+    use image::{ImageFormat, Rgba, RgbaImage};
+
+    let dir = tempfile::tempdir().unwrap();
+    let logos_dir = dir.path().join("logos");
+    std::fs::create_dir_all(&logos_dir).unwrap();
+    let image_path = logos_dir.join("customer.png");
+    let img = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+
+    let draw_ops = vec![
+        DrawOp::LoadImage {
+            path: TextValue::Literal("./logos/customer.png".to_string()),
+            alias: TextValue::Literal("customer_logo".to_string()),
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("customer_logo".to_string()),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(32.0),
+            height: NumberValue::Literal(32.0),
+        },
+    ];
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    let context = empty_render_context();
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(&draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
+
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        None,
+        &context,
+        &mut cache,
+        &host_assets_enabled(dir.path().to_path_buf()),
+    )
+    .unwrap();
+
+    assert_eq!(cache.runtime_image_assets.len(), 1);
+    assert_eq!(cache.image_surfaces.len(), 1);
+    assert_eq!(cache.scaled_image_surfaces.len(), 1);
+}
+
+#[test]
+fn loadimage_reuses_cache_for_same_path_under_two_aliases() {
+    use crate::parser::TextValue;
+    use image::{ImageFormat, Rgba, RgbaImage};
+
+    let dir = tempfile::tempdir().unwrap();
+    let logos_dir = dir.path().join("logos");
+    std::fs::create_dir_all(&logos_dir).unwrap();
+    let image_path = logos_dir.join("customer.png");
+    let img = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+
+    let draw_ops = vec![
+        DrawOp::LoadImage {
+            path: TextValue::Literal("./logos/customer.png".to_string()),
+            alias: TextValue::Literal("logo_a".to_string()),
+        },
+        DrawOp::LoadImage {
+            path: TextValue::Literal("./logos/customer.png".to_string()),
+            alias: TextValue::Literal("logo_b".to_string()),
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("logo_a".to_string()),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(32.0),
+            height: NumberValue::Literal(32.0),
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("logo_b".to_string()),
+            x: NumberValue::Literal(40.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(32.0),
+            height: NumberValue::Literal(32.0),
+        },
+    ];
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 96, 64).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    let context = empty_render_context();
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(&draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
+
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        None,
+        &context,
+        &mut cache,
+        &host_assets_enabled(dir.path().to_path_buf()),
+    )
+    .unwrap();
+
+    assert_eq!(cache.runtime_image_assets.len(), 2);
+    assert_eq!(cache.image_surfaces.len(), 1);
+    assert_eq!(cache.scaled_image_surfaces.len(), 1);
+}
+
+#[test]
+fn loadimage_accepts_absolute_host_path() {
+    use crate::parser::TextValue;
+    use image::{ImageFormat, Rgba, RgbaImage};
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("customer.png");
+    let img = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
+    img.save_with_format(&image_path, ImageFormat::Png).unwrap();
+
+    let draw_ops = vec![
+        DrawOp::LoadImage {
+            path: TextValue::Literal(image_path.to_string_lossy().to_string()),
+            alias: TextValue::Literal("customer_logo".to_string()),
+        },
+        DrawOp::Image {
+            asset: TextValue::Literal("customer_logo".to_string()),
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(32.0),
+            height: NumberValue::Literal(32.0),
+        },
+    ];
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64).unwrap();
+    let ctx = cairo::Context::new(&surface).unwrap();
+    let mut cache = RenderCache::default();
+    let context = empty_render_context();
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(&draw_ops);
+    let frame_state = build_initial_frame_state(&frames);
+
+    execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        None,
+        &context,
+        &mut cache,
+        &host_assets_enabled(PathBuf::from("/")),
+    )
+    .unwrap();
+
+    assert_eq!(cache.runtime_image_assets.len(), 1);
+    assert_eq!(cache.image_surfaces.len(), 1);
 }
 
 #[test]
@@ -1742,8 +1961,16 @@ fn errors_when_image_geometry_is_invalid() {
     let frames = default_frames();
     let draw_frames = as_draw_frames(&draw_ops);
     let frame_state = build_initial_frame_state(&frames);
-    let err =
-        execute_draw(&ctx, &draw_frames, &frame_state, None, &context, &mut cache).unwrap_err();
+    let err = execute_draw(
+        &ctx,
+        &draw_frames,
+        &frame_state,
+        None,
+        &context,
+        &mut cache,
+        &host_assets_disabled(),
+    )
+    .unwrap_err();
     assert!(matches!(
         err,
         RenderError::InvalidImageGeometry { width, height, .. }

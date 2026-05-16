@@ -3,6 +3,7 @@ mod test;
 
 use std::{
     collections::HashMap,
+    fs,
     fs::File,
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -19,7 +20,7 @@ use dither::{
 
 use crate::{
     DitherType,
-    resources::{RegisteredFont, RenderContext},
+    resources::{RegisteredAsset, RegisteredFont, RenderContext, load_host_image_asset},
 };
 use crate::{
     parser::{
@@ -65,9 +66,30 @@ impl FrameRuntimeState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ScaledImageKey {
-    alias: String,
+    source_key: String,
     width_px: i32,
     height_px: i32,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeImageAsset {
+    registered: RegisteredAsset,
+    source_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct HostAssetPolicy {
+    pub allow: bool,
+    pub cwd: PathBuf,
+}
+
+impl Default for HostAssetPolicy {
+    fn default() -> Self {
+        Self {
+            allow: false,
+            cwd: PathBuf::from("."),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -82,6 +104,7 @@ const IMAGE_CACHE_SCALE: f64 = 3.0;
 pub struct RenderCache {
     image_surfaces: HashMap<String, cairo::ImageSurface>,
     scaled_image_surfaces: HashMap<ScaledImageKey, cairo::ImageSurface>,
+    runtime_image_assets: HashMap<String, RuntimeImageAsset>,
     script_runtime: LuaRuntime,
     image_remap: Option<ImageRemapConfig>,
 }
@@ -91,6 +114,7 @@ impl Default for RenderCache {
         Self {
             image_surfaces: HashMap::new(),
             scaled_image_surfaces: HashMap::new(),
+            runtime_image_assets: HashMap::new(),
             script_runtime: LuaRuntime::new(),
             image_remap: None,
         }
@@ -153,6 +177,20 @@ pub enum RenderError {
     },
     MissingAssetAlias {
         alias: String,
+    },
+    EmptyDynamicAssetAlias {
+        path: String,
+    },
+    HostAssetAccessDenied {
+        path: String,
+    },
+    HostAssetResolve {
+        path: String,
+        message: String,
+    },
+    HostAssetLoad {
+        path: PathBuf,
+        message: String,
     },
     ImageDecode {
         alias: String,
@@ -1180,18 +1218,19 @@ fn load_image_surface(
 
 fn get_or_load_image_surface<'a>(
     cache: &'a mut RenderCache,
+    source_key: &str,
     alias: &str,
     path: &Path,
 ) -> Result<&'a cairo::ImageSurface, RenderError> {
-    if !cache.image_surfaces.contains_key(alias) {
+    if !cache.image_surfaces.contains_key(source_key) {
         let remap = cache.image_remap.as_ref();
         let surface = load_image_surface(alias, path, remap)?;
-        cache.image_surfaces.insert(alias.to_string(), surface);
+        cache.image_surfaces.insert(source_key.to_string(), surface);
     }
 
     Ok(cache
         .image_surfaces
-        .get(alias)
+        .get(source_key)
         .expect("cache insert must exist"))
 }
 
@@ -1231,6 +1270,7 @@ fn build_scaled_surface(
 
 fn get_or_load_scaled_image_surface<'a>(
     cache: &'a mut RenderCache,
+    source_key: &str,
     alias: &str,
     path: &Path,
     target_w: f64,
@@ -1238,13 +1278,13 @@ fn get_or_load_scaled_image_surface<'a>(
 ) -> Result<&'a ImageSurface, RenderError> {
     let (width_px, height_px) = normalize_surface_dims(target_w, target_h);
     let key = ScaledImageKey {
-        alias: alias.to_string(),
+        source_key: source_key.to_string(),
         width_px,
         height_px,
     };
 
     if !cache.scaled_image_surfaces.contains_key(&key) {
-        let source = get_or_load_image_surface(cache, alias, path)?.clone();
+        let source = get_or_load_image_surface(cache, source_key, alias, path)?.clone();
         let scaled = build_scaled_surface(&source, width_px, height_px)?;
         cache.scaled_image_surfaces.insert(key.clone(), scaled);
     }
@@ -1253,6 +1293,86 @@ fn get_or_load_scaled_image_surface<'a>(
         .scaled_image_surfaces
         .get(&key)
         .expect("scaled cache insert must exist"))
+}
+
+fn path_cache_key(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+
+fn resolve_host_asset_path(raw_path: &str, policy: &HostAssetPolicy) -> Result<PathBuf, RenderError> {
+    if !policy.allow {
+        return Err(RenderError::HostAssetAccessDenied {
+            path: raw_path.to_string(),
+        });
+    }
+
+    let input = Path::new(raw_path);
+    let joined = if input.is_absolute() {
+        input.to_path_buf()
+    } else {
+        policy.cwd.join(input)
+    };
+
+    fs::canonicalize(&joined).map_err(|err| RenderError::HostAssetResolve {
+        path: raw_path.to_string(),
+        message: err.to_string(),
+    })
+}
+
+fn load_runtime_image_asset(
+    cache: &mut RenderCache,
+    policy: &HostAssetPolicy,
+    alias: &str,
+    path: &str,
+) -> Result<(), RenderError> {
+    if alias.trim().is_empty() {
+        return Err(RenderError::EmptyDynamicAssetAlias {
+            path: path.to_string(),
+        });
+    }
+
+    let resolved_path = resolve_host_asset_path(path, policy)?;
+    let registered = load_host_image_asset(alias, &resolved_path).map_err(|err| {
+        RenderError::HostAssetLoad {
+            path: resolved_path.clone(),
+            message: err.to_string(),
+        }
+    })?;
+    let source_key = path_cache_key(&resolved_path);
+
+    cache.runtime_image_assets.insert(
+        alias.to_string(),
+        RuntimeImageAsset {
+            registered,
+            source_key,
+        },
+    );
+
+    Ok(())
+}
+
+fn resolve_image_alias(
+    cache: &RenderCache,
+    context: &RenderContext,
+    asset: &str,
+) -> Option<(PathBuf, String, AssetType)> {
+    if let Some(runtime) = cache.runtime_image_assets.get(asset) {
+        return Some((
+            runtime.registered.path.clone(),
+            runtime.source_key.clone(),
+            runtime.registered.ty.clone(),
+        ));
+    }
+
+    context
+        .resolve_asset(asset)
+        .map(|registered| {
+            (
+                registered.path.clone(),
+                path_cache_key(&registered.path),
+                registered.ty.clone(),
+            )
+        })
 }
 
 fn render_image(
@@ -1274,22 +1394,20 @@ fn render_image(
         });
     }
 
-    let registered =
-        context
-            .resolve_asset(asset)
-            .ok_or_else(|| RenderError::MissingAssetAlias {
-                alias: asset.to_string(),
-            })?;
+    let (registered_path, source_key, asset_type) =
+        resolve_image_alias(cache, context, asset).ok_or_else(|| RenderError::MissingAssetAlias {
+            alias: asset.to_string(),
+        })?;
 
-    if registered.ty != AssetType::Image {
+    if asset_type != AssetType::Image {
         return Err(RenderError::WrongAssetType {
             alias: asset.to_string(),
-            found: registered.ty.clone(),
+            found: asset_type,
         });
     }
 
     let (src_w, src_h) = {
-        let source = get_or_load_image_surface(cache, asset, &registered.path)?;
+        let source = get_or_load_image_surface(cache, &source_key, asset, &registered_path)?;
         (source.width() as f64, source.height() as f64)
     };
 
@@ -1315,8 +1433,14 @@ fn render_image(
 
     let cache_w = draw_w * IMAGE_CACHE_SCALE;
     let cache_h = draw_h * IMAGE_CACHE_SCALE;
-    let scaled_surface =
-        get_or_load_scaled_image_surface(cache, asset, &registered.path, cache_w, cache_h)?;
+    let scaled_surface = get_or_load_scaled_image_surface(
+        cache,
+        &source_key,
+        asset,
+        &registered_path,
+        cache_w,
+        cache_h,
+    )?;
 
     ctx.save()?;
     ctx.rectangle(x, y, width, height);
@@ -1418,6 +1542,7 @@ fn execute_draw(
     data: Option<&Value>,
     context: &RenderContext,
     cache: &mut RenderCache,
+    host_assets: &HostAssetPolicy,
 ) -> Result<RenderWarnings, RenderError> {
     let mut state = RenderState::default();
     let mut pending_path: Option<PendingPath> = None;
@@ -1616,6 +1741,11 @@ fn execute_draw(
                         eval_number(height, data)?,
                     )?;
                 }
+                DrawOp::LoadImage { path, alias } => {
+                    let path = eval_text(path, data)?;
+                    let alias = eval_text(alias, data)?;
+                    load_runtime_image_asset(cache, host_assets, &alias, &path)?;
+                }
                 DrawOp::TextBox {
                     text,
                     x,
@@ -1652,9 +1782,19 @@ pub fn render_pdf(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
+    host_assets: &HostAssetPolicy,
 ) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
-    render_pdf_with_cache(page, frames, draw_frames, output_path, data, context, &mut cache)
+    render_pdf_with_cache(
+        page,
+        frames,
+        draw_frames,
+        output_path,
+        data,
+        context,
+        host_assets,
+        &mut cache,
+    )
 }
 
 pub fn render_pdf_with_cache(
@@ -1664,6 +1804,7 @@ pub fn render_pdf_with_cache(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
+    host_assets: &HostAssetPolicy,
     cache: &mut RenderCache,
 ) -> Result<RenderOutcome, RenderError> {
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
@@ -1674,7 +1815,7 @@ pub fn render_pdf_with_cache(
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
-    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
+    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache, host_assets)?;
     let draw_time = draw_start.elapsed();
     surface.finish();
 
@@ -1692,6 +1833,7 @@ pub fn render_png(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
+    host_assets: &HostAssetPolicy,
     dpi: u16,
     dither: Option<DitherType>,
     remap_palette_source: Option<&str>,
@@ -1704,6 +1846,7 @@ pub fn render_png(
         output_path,
         data,
         context,
+        host_assets,
         dpi,
         dither,
         remap_palette_source,
@@ -1718,6 +1861,7 @@ pub fn render_png_with_cache(
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
+    host_assets: &HostAssetPolicy,
     dpi: u16,
     dither: Option<DitherType>,
     remap_palette_source: Option<&str>,
@@ -1737,7 +1881,7 @@ pub fn render_png_with_cache(
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
-    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
+    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache, host_assets)?;
     let draw_time = draw_start.elapsed();
     surface.flush();
 
