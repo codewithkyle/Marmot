@@ -246,6 +246,7 @@ Rules (optional block):
 - Frame `<frame_id>` must be a word token.
 - Layer frame entries are metadata references to declared frames.
 - Layer frame indices are referenced by `draw` layer blocks.
+- A frame index may belong to at most one layer (hard parse error if reused across layers).
 
 ## Draw Block
 

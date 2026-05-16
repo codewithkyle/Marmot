@@ -2575,3 +2575,43 @@ end end
         }
     );
 }
+
+#[test]
+fn errors_when_frame_is_assigned_to_multiple_layers() {
+    let source = r#"%!PSL 0.1
+page 300 200
+
+frames begin
+  1 FRAME_A
+end
+
+layers begin
+  layer 1 LAYER_A begin
+    1 FRAME_A
+  end
+
+  layer 2 LAYER_B begin
+    1 FRAME_A
+  end
+end
+
+draw begin
+  frame 1 begin
+  end
+end
+"#;
+
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let err = parser.parse_template().unwrap_err();
+
+    assert_eq!(
+        err,
+        ParseError::FrameInMultipleLayers {
+            frame_index: 1,
+            first_layer_index: 1,
+            second_layer_index: 2,
+        }
+    );
+}

@@ -349,6 +349,11 @@ pub enum ParseError {
         line: usize,
         column: usize,
     },
+    FrameInMultipleLayers {
+        frame_index: u32,
+        first_layer_index: u32,
+        second_layer_index: u32,
+    },
     UnexpectedStackValue {
         operator: String,
         expected: String,
@@ -442,6 +447,7 @@ impl Parser {
         let frames = self.parse_frames()?;
         let frame_lookup = Self::build_frame_lookup(&frames);
         let layers = self.parse_optional_layers()?;
+        Self::validate_frame_layer_uniqueness(&layers)?;
         let layer_lookup = Self::build_layer_lookup(&layers);
         let layer_frame_lookup = Self::build_layer_frame_lookup(&layers);
         let draw_entries = self.parse_draw(
@@ -738,6 +744,26 @@ impl Parser {
             out.insert(layer.index, indices);
         }
         out
+    }
+
+    fn validate_frame_layer_uniqueness(layers: &[LayerDecl]) -> Result<(), ParseError> {
+        let mut frame_to_layer: HashMap<u32, u32> = HashMap::new();
+
+        for layer in layers {
+            for frame in &layer.frames {
+                if let Some(first_layer_index) = frame_to_layer.insert(frame.index, layer.index) {
+                    if first_layer_index != layer.index {
+                        return Err(ParseError::FrameInMultipleLayers {
+                            frame_index: frame.index,
+                            first_layer_index,
+                            second_layer_index: layer.index,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn validate_literal_positive(
