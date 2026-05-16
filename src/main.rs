@@ -22,7 +22,7 @@ use crate::{
     lexer::Lexer,
     package::{MarmotPackage, PackageBuilderOptions, create_package},
     parser::{Parser, Template},
-    renderer::{RenderCache, RenderWarnings, render_pdf, render_pdf_with_cache},
+    renderer::{RenderCache, RenderWarnings, render_pdf, render_png},
     resources::{RenderContext, build_render_context},
     validator::validate_data,
 };
@@ -39,7 +39,7 @@ enum OutputType {
 }
 
 impl OutputType {
-    pub fn try_from(word: &str) -> Result<Self> {
+    pub fn try_from_word(word: &str) -> Result<Self> {
         match word.to_lowercase().as_str() {
             "png" => Ok(Self::PNG),
             "pdf" => Ok(Self::PDF),
@@ -274,6 +274,7 @@ fn batch(args: BatchArgs) -> Result<()> {
 
     let output_dir = Arc::new(args.output_dir.clone());
     let output_name = Arc::new(args.output_name.clone());
+    let output_type = Arc::new(args.output_type.clone());
     let trust_data = args.trust_data;
 
     let (job_tx, job_rx) = mpsc::sync_channel::<BatchJob>(jobs * 4);
@@ -292,6 +293,7 @@ fn batch(args: BatchArgs) -> Result<()> {
         let render_context = Arc::clone(&render_context);
         let output_dir = Arc::clone(&output_dir);
         let output_name = Arc::clone(&output_name);
+        let output_type = Arc::clone(&output_type);
 
         let handle = thread::spawn(move || {
             let mut render_cache = RenderCache::default();
@@ -314,6 +316,7 @@ fn batch(args: BatchArgs) -> Result<()> {
                     &render_context,
                     &output_dir,
                     &output_name,
+                    &output_type,
                     trust_data,
                     &mut render_cache,
                 );
@@ -492,15 +495,26 @@ fn render(args: RenderArgs) -> Result<()> {
     let prep = prep_start.elapsed();
     let render_start = Instant::now();
 
-    let outcome = render_pdf(
-        &template.page,
-        &template.frames,
-        &template.draw_frames,
-        &args.output_file,
-        data.as_ref(),
-        &render_context,
-    )
-    .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?;
+    let outcome = match args.output_type {
+        OutputType::PDF => render_pdf(
+            &template.page,
+            &template.frames,
+            &template.draw_frames,
+            &args.output_file,
+            data.as_ref(),
+            &render_context,
+        )
+        .map_err(|err| anyhow!("failed to render PDF: {err:?}"))?,
+        OutputType::PNG => render_png(
+            &template.page,
+            &template.frames,
+            &template.draw_frames,
+            &args.output_file,
+            data.as_ref(),
+            &render_context,
+        )
+        .map_err(|err| anyhow!("failed to render PNG: {err:?}"))?,
+    };
 
     for frame_idx in outcome.warnings.empty_value_frames {
         eprintln!("warning: frame {} has empty value", frame_idx);
@@ -598,7 +612,7 @@ fn parse_batch_args(matches: &ArgMatches) -> Result<BatchArgs> {
     let enable_timings = *matches.get_one::<bool>("timings").unwrap_or(&false);
     let output_type = matches
         .get_one::<String>("output-type")
-        .map(|s| OutputType::try_from(s))
+        .map(|s| OutputType::try_from_word(s))
         .unwrap_or(Ok(OutputType::PDF))?;
 
     ensure_file_exists(&records_file)?;
@@ -666,7 +680,7 @@ fn parse_render_args(matches: &ArgMatches) -> Result<RenderArgs> {
         .into();
     let output_type = matches
         .get_one::<String>("output-type")
-        .map(|s| OutputType::try_from(s))
+        .map(|s| OutputType::try_from_word(s))
         .unwrap_or(Ok(OutputType::PDF))?;
 
     let enable_timings = matches.get_one::<bool>("timings").unwrap_or(&false);
@@ -822,6 +836,7 @@ fn process_batch_line(
     render_context: &RenderContext,
     output_dir: &Path,
     output_name_template: &str,
+    output_type: &OutputType,
     trust_data: bool,
     render_cache: &mut RenderCache,
 ) -> BatchResult {
@@ -869,15 +884,26 @@ fn process_batch_line(
 
     let render_start = Instant::now();
 
-    match render_pdf_with_cache(
-        &template.page,
-        &template.frames,
-        &template.draw_frames,
-        &output_path,
-        Some(&record),
-        &render_context,
-        render_cache,
-    ) {
+    let outcome = match output_type {
+        OutputType::PDF => render_pdf(
+            &template.page,
+            &template.frames,
+            &template.draw_frames,
+            &output_path,
+            Some(&record),
+            &render_context,
+        ),
+        OutputType::PNG => render_png(
+            &template.page,
+            &template.frames,
+            &template.draw_frames,
+            &output_path,
+            Some(&record),
+            &render_context,
+        )
+    };
+
+    match outcome {
         Ok(outcome) => BatchResult::Success {
             render_time: render_start.elapsed(),
             script_time: outcome.script_time,

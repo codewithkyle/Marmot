@@ -1,3 +1,4 @@
 /target
 *.marmot
 *.pdf
+/out

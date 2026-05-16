@@ -3,6 +3,7 @@ mod test;
 
 use std::{
     collections::HashMap,
+    fs::File,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -1550,15 +1551,15 @@ fn execute_draw(
     Ok(warnings)
 }
 
-pub fn render_pdf_with_cache(
+pub fn render_pdf(
     page: &Page,
     frames: &[FrameDecl],
     draw_frames: &[FrameDrawBlock],
     output_path: &Path,
     data: Option<&Value>,
     context: &RenderContext,
-    cache: &mut RenderCache,
 ) -> Result<RenderOutcome, RenderError> {
+    let mut cache = RenderCache::default();
     let surface = PdfSurface::new(page.width, page.height, output_path)?;
     let ctx = Context::new(&surface)?;
     let mut frame_state = build_initial_frame_state(frames);
@@ -1567,7 +1568,7 @@ pub fn render_pdf_with_cache(
     let script_time = script_start.elapsed();
 
     let draw_start = Instant::now();
-    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, cache)?;
+    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, &mut cache)?;
     let draw_time = draw_start.elapsed();
     surface.finish();
 
@@ -1578,7 +1579,7 @@ pub fn render_pdf_with_cache(
     })
 }
 
-pub fn render_pdf(
+pub fn render_png(
     page: &Page,
     frames: &[FrameDecl],
     draw_frames: &[FrameDrawBlock],
@@ -1587,13 +1588,36 @@ pub fn render_pdf(
     context: &RenderContext,
 ) -> Result<RenderOutcome, RenderError> {
     let mut cache = RenderCache::default();
-    return render_pdf_with_cache(
-        page,
-        frames,
-        draw_frames,
-        output_path,
-        data,
-        context,
-        &mut cache,
-    );
+    let scale = 300.0 / 72.0;
+    let (w, h) = normalize_surface_dims(page.width * scale, page.height * scale);
+    let surface = ImageSurface::create(Format::ARgb32, w, h)?;
+    let ctx = Context::new(&surface)?;
+    ctx.scale(scale, scale);
+
+    let mut frame_state = build_initial_frame_state(frames);
+    let script_start = Instant::now();
+    run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
+    let script_time = script_start.elapsed();
+
+    let draw_start = Instant::now();
+    let warnings = execute_draw(&ctx, draw_frames, &frame_state, data, context, &mut cache)?;
+    let draw_time = draw_start.elapsed();
+    surface.flush();
+
+    let mut file = File::create(output_path).map_err(|e| RenderError::ImageDecode {
+        alias: "<output>".to_string(),
+        path: output_path.to_path_buf(),
+        message: format!("failed to create output: {e}"),
+    })?;
+    surface.write_to_png(&mut file).map_err(|e| RenderError::ImageDecode {
+        alias: "<output>".to_string(),
+        path: output_path.to_path_buf(),
+        message: format!("failed to create png: {e}"),
+    })?;
+
+    Ok(RenderOutcome {
+        warnings,
+        script_time,
+        draw_time,
+    })
 }

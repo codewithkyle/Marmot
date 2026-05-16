@@ -88,6 +88,18 @@ fn render_pdf_for_test(
     render_pdf(page, &frames, &draw_frames, output_path, data, context).map(|_| ())
 }
 
+fn render_png_for_test(
+    page: &Page,
+    draw_ops: &[DrawOp],
+    output_path: &std::path::Path,
+    data: Option<&Value>,
+    context: &RenderContext,
+) -> Result<(), RenderError> {
+    let frames = default_frames();
+    let draw_frames = as_draw_frames(draw_ops);
+    render_png(page, &frames, &draw_frames, output_path, data, context).map(|_| ())
+}
+
 fn render_pdf_with_cache_for_test(
     page: &Page,
     draw_ops: &[DrawOp],
@@ -98,16 +110,15 @@ fn render_pdf_with_cache_for_test(
 ) -> Result<(), RenderError> {
     let frames = default_frames();
     let draw_frames = as_draw_frames(draw_ops);
-    render_pdf_with_cache(
-        page,
-        &frames,
-        &draw_frames,
-        output_path,
-        data,
-        context,
-        cache,
-    )
-    .map(|_| ())
+    let surface = PdfSurface::new(page.width, page.height, output_path)?;
+    let ctx = Context::new(&surface)?;
+
+    let mut frame_state = build_initial_frame_state(&frames);
+    run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
+    execute_draw(&ctx, &draw_frames, &frame_state, data, context, cache)?;
+    surface.finish();
+
+    Ok(())
 }
 
 #[test]
@@ -246,6 +257,45 @@ fn renders_basic_pdf() {
 
     let metadata = fs::metadata(&output_path).unwrap();
     assert!(metadata.len() > 0);
+
+    let _ = fs::remove_file(output_path);
+}
+
+#[test]
+fn renders_basic_png() {
+    use crate::parser::{DrawOp, NumberValue, Page};
+    use std::fs;
+
+    let page = Page {
+        width: 128.0,
+        height: 96.0,
+    };
+
+    let draw_ops = vec![
+        DrawOp::SetRgb {
+            r: NumberValue::Literal(0.0),
+            g: NumberValue::Literal(1.0),
+            b: NumberValue::Literal(0.0),
+        },
+        DrawOp::RectPath {
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(128.0),
+            height: NumberValue::Literal(96.0),
+        },
+        DrawOp::Fill,
+    ];
+
+    let output_path = std::env::temp_dir().join("marmot_basic_render_test.png");
+    let render_context = empty_render_context();
+
+    render_png_for_test(&page, &draw_ops, &output_path, None, &render_context).unwrap();
+
+    let metadata = fs::metadata(&output_path).unwrap();
+    assert!(metadata.len() > 0);
+
+    let png_bytes = fs::read(&output_path).unwrap();
+    assert!(png_bytes.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]));
 
     let _ = fs::remove_file(output_path);
 }
