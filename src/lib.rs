@@ -73,7 +73,7 @@ pub enum DitherType {
 }
 
 impl DitherType {
-    fn try_from_word(word: &str) -> Result<Self> {
+    pub fn try_from_word(word: &str) -> Result<Self> {
         match word.to_ascii_lowercase().as_str() {
             "floyd" | "floyd-steinberg" | "steinberg" => Ok(Self::Floyd),
             "atkinson" => Ok(Self::Atkinson),
