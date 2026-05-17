@@ -2581,3 +2581,96 @@ fn dithered_remap_output_uses_only_palette_colors() {
         assert!(allowed.contains(&[px[0], px[1], px[2]]));
     }
 }
+
+#[test]
+fn renders_pdf_stream_to_bytes() {
+    use crate::parser::{DrawOp, NumberValue, Page};
+
+    let page = Page {
+        width: 200.0,
+        height: 200.0,
+    };
+
+    let draw_ops = vec![
+        DrawOp::SetRgb {
+            r: NumberValue::Literal(1.0),
+            g: NumberValue::Literal(1.0),
+            b: NumberValue::Literal(1.0),
+        },
+        DrawOp::RectPath {
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(200.0),
+            height: NumberValue::Literal(200.0),
+        },
+        DrawOp::Fill,
+    ];
+
+    let layers = default_layers();
+    let frames = default_frames();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let render_context = empty_render_context();
+
+    let (bytes, outcome) = render_pdf_stream(
+        &page,
+        &frames,
+        &layers,
+        &draw_entries,
+        None,
+        &render_context,
+        &host_assets_disabled(),
+    )
+    .unwrap();
+
+    assert!(!bytes.is_empty());
+    assert!(bytes.starts_with(b"%PDF"));
+    assert!(outcome.warnings.empty_value_frames.is_empty());
+}
+
+#[test]
+fn renders_png_stream_to_bytes() {
+    use crate::parser::{DrawOp, NumberValue, Page};
+
+    let page = Page {
+        width: 128.0,
+        height: 96.0,
+    };
+
+    let draw_ops = vec![
+        DrawOp::SetRgb {
+            r: NumberValue::Literal(0.0),
+            g: NumberValue::Literal(1.0),
+            b: NumberValue::Literal(0.0),
+        },
+        DrawOp::RectPath {
+            x: NumberValue::Literal(0.0),
+            y: NumberValue::Literal(0.0),
+            width: NumberValue::Literal(128.0),
+            height: NumberValue::Literal(96.0),
+        },
+        DrawOp::Fill,
+    ];
+
+    let layers = default_layers();
+    let frames = default_frames();
+    let draw_entries = as_draw_entries(&draw_ops);
+    let render_context = empty_render_context();
+
+    let (bytes, outcome) = render_png_stream(
+        &page,
+        &frames,
+        &layers,
+        &draw_entries,
+        None,
+        &render_context,
+        &host_assets_disabled(),
+        72,
+        None,
+        None,
+    )
+    .unwrap();
+
+    assert!(!bytes.is_empty());
+    assert!(bytes.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]));
+    assert!(outcome.warnings.empty_value_frames.is_empty());
+}
