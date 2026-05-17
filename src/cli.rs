@@ -1,67 +1,15 @@
 #[cfg(test)]
 mod test;
 
-use anyhow::{Result};
+use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use std::{
-    path::{PathBuf},
-    time::{Duration},
-};
+use std::path::PathBuf;
 
 use crate::{
-    DitherType, OutputType, batch, check, ensure_dir_exists, ensure_file_exists,
-    ensure_parent_exists, pack, render,
+    BatchArgs, CheckArgs, DitherType, OutputType, PackArgs, RenderArgs,
+    ops::{batch, check, pack, render},
+    util::{ensure_dir_exists, ensure_file_exists, ensure_parent_exists},
 };
-
-pub struct RenderStats {
-    pub avg: Duration,
-    pub min: Duration,
-    pub max: Duration,
-    pub p90: Duration,
-    pub p95: Duration,
-    pub p99: Duration,
-    pub p999: Duration,
-}
-
-pub struct CheckArgs {
-    pub package_file: PathBuf,
-    pub data_file: PathBuf,
-}
-
-pub struct RenderArgs {
-    pub package_file: PathBuf,
-    pub data_file: Option<PathBuf>,
-    pub output_file: PathBuf,
-    pub enable_timings: bool,
-    pub output_type: OutputType,
-    pub dpi: u16,
-    pub dither: Option<DitherType>,
-    pub allow_host_assets: bool,
-}
-
-pub struct PackArgs {
-    pub template_file: PathBuf,
-    pub name: String,
-    pub output_dir: Option<PathBuf>,
-    pub assets: Vec<PathBuf>,
-    pub fonts: Vec<PathBuf>,
-    pub scripts: Vec<PathBuf>,
-    pub remap_file: Option<PathBuf>,
-}
-
-pub struct BatchArgs {
-    pub package_file: PathBuf,
-    pub records_file: PathBuf,
-    pub output_dir: PathBuf,
-    pub output_name: String,
-    pub jobs: usize,
-    pub trust_data: bool,
-    pub enable_timings: bool,
-    pub output_type: OutputType,
-    pub dpi: u16,
-    pub dither: Option<DitherType>,
-    pub allow_host_assets: bool,
-}
 
 pub fn run() -> Result<()> {
     let matches = Command::new("marmot")

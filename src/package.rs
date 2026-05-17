@@ -10,7 +10,7 @@ use std::{
 };
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-use crate::ensure_file_exists;
+use crate::util::ensure_file_exists;
 
 pub struct MarmotPackage {
     _temp_dir: tempfile::TempDir,

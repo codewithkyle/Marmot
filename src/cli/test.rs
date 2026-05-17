@@ -1,4 +1,4 @@
-use crate::{format_output_name, load_remap_palette_if_needed, package::{MarmotPackage, PackageBuilderOptions, create_package}};
+use crate::{ops::load_remap_palette_if_needed, package::{MarmotPackage, PackageBuilderOptions, create_package}, util::format_output_name};
 
 use super::*;
 use serde_json::json;
