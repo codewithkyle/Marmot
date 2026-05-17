@@ -171,6 +171,9 @@ pub struct RenderWarnings {
 
 #[derive(Debug, PartialEq)]
 pub enum RenderError {
+    Internal {
+        message: String,
+    },
     RemapPaletteParse {
         message: String,
     },
@@ -2176,6 +2179,59 @@ pub fn render_pdf(
     )
 }
 
+pub fn render_pdf_stream(
+    page: &Page,
+    frames: &[FrameDecl],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
+    data: Option<&Value>,
+    context: &RenderContext,
+    host_assets: &HostAssetPolicy,
+) -> Result<(Vec<u8>, RenderOutcome), RenderError> {
+    let mut cache = RenderCache::default();
+    let buffer = Vec::new();
+    let surface = PdfSurface::for_stream(page.width, page.height, buffer)?;
+    let ctx = Context::new(&surface)?;
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state_from_frames(frames);
+    let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
+    run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
+    let script_time = script_start.elapsed();
+
+    let draw_start = Instant::now();
+    let warnings = execute_draw(
+        &ctx,
+        draw_entries,
+        &layer_state,
+        &frame_state,
+        data,
+        context,
+        &mut cache,
+        host_assets,
+    )?;
+    let draw_time = draw_start.elapsed();
+    let output = surface
+        .finish_output_stream()
+        .map_err(|err| RenderError::Internal {
+            message: err.to_string(),
+        })?;
+    let vec = output
+        .downcast::<Vec<u8>>()
+        .map_err(|_| RenderError::Internal {
+            message: "output stream type mismatch".to_string(),
+        })?;
+
+    Ok((
+        *vec,
+        RenderOutcome {
+            warnings,
+            script_time,
+            draw_time,
+        },
+    ))
+}
+
 pub fn render_pdf_with_cache(
     page: &Page,
     frames: &[FrameDecl],
@@ -2245,6 +2301,65 @@ pub fn render_png(
         remap_palette_source,
         &mut cache,
     )
+}
+
+pub fn render_png_stream(
+    page: &Page,
+    frames: &[FrameDecl],
+    layers: &[LayerDecl],
+    draw_entries: &[DrawEntry],
+    data: Option<&Value>,
+    context: &RenderContext,
+    host_assets: &HostAssetPolicy,
+    dpi: u16,
+    dither: Option<DitherType>,
+    remap_palette_source: Option<&str>,
+) -> Result<(Vec<u8>, RenderOutcome), RenderError> {
+    let mut cache = RenderCache::default();
+    cache.image_remap = build_image_remap_config(dither, remap_palette_source)?;
+
+    let scale = dpi as f64 / 72.0;
+    let (w, h) = normalize_surface_dims(page.width * scale, page.height * scale);
+    let surface = ImageSurface::create(Format::ARgb32, w, h)?;
+    let ctx = Context::new(&surface)?;
+    ctx.scale(scale, scale);
+
+    let mut layer_state = build_initial_layer_state(layers);
+    let mut frame_state = build_initial_frame_state_from_frames(frames);
+    let script_start = Instant::now();
+    run_layer_scripts(&mut layer_state, data, context, &mut cache.script_runtime)?;
+    run_frame_scripts(&mut frame_state, data, context, &mut cache.script_runtime)?;
+    let script_time = script_start.elapsed();
+
+    let draw_start = Instant::now();
+    let warnings = execute_draw(
+        &ctx,
+        draw_entries,
+        &layer_state,
+        &frame_state,
+        data,
+        context,
+        &mut cache,
+        host_assets,
+    )?;
+    let draw_time = draw_start.elapsed();
+    surface.flush();
+
+    let mut buffer = Vec::new();
+    surface
+        .write_to_png(&mut buffer)
+        .map_err(|e| RenderError::Internal {
+            message: format!("failed to create png: {e}"),
+        })?;
+
+    Ok((
+        buffer,
+        RenderOutcome {
+            warnings,
+            script_time,
+            draw_time,
+        },
+    ))
 }
 
 pub fn render_png_with_cache(
