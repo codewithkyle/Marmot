@@ -1,0 +1,28 @@
+# Build artifacts
+target/
+
+# Generated outputs
+*.marmot
+*.pdf
+/out/
+
+# Git metadata
+.git/
+.gitignore
+
+# CI/docs
+.github/
+docs/
+README.md
+
+# Docker orchestration (not needed inside image)
+Dockerfile
+compose.yaml
+.dockerignore
+
+# Test fixtures (tests not run in Docker build)
+test/
+
+# OS files
+.DS_Store
+Thumbs.db

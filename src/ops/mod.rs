@@ -9,4 +9,4 @@ pub use check::check;
 pub use pack::pack;
 pub use render::render;
 
-pub(crate) use common::{load_remap_palette_if_needed, parse_template_source};
+pub(crate) use common::parse_template_source;

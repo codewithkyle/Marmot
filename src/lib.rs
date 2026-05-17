@@ -1,3 +1,4 @@
+#[cfg(feature = "cli")]
 pub mod cli;
 mod lexer;
 mod ops;
